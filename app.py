@@ -44,7 +44,7 @@ st.markdown("""
 Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 
 ### Instructions :
-- Personalisez vos fiches de postes dans la zone de texte ci-dessous.
+- Personnalisez vos fiches de postes dans la zone de texte ci-dessous.
 - Cliquez sur le bouton "Générer la Fiche de Poste" pour obtenir une fiche automatiquement générée.
 - La fiche sera basée sur votre description du poste et des critères de sélection.
 
@@ -56,8 +56,9 @@ Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 user_prompt = st.text_area("Écrivez ici votre prompt pour générer une fiche de poste :", 
                           "Entrez ici le prompt pour ChatGPT...")
 
-# Liste des titres des fiches générées
+# Liste des fiches de poste générées
 generated_fiches = []
+fiche_contenu = {}
 
 # --- Bouton pour envoyer la demande à OpenAI ---
 if st.button('Générer la Fiche de Poste'):
@@ -80,6 +81,9 @@ if st.button('Générer la Fiche de Poste'):
             title = user_prompt.split(" ")[0]  # Exemple : Utiliser le premier mot du prompt comme titre
             generated_fiches.append(title)
 
+            # Stocker la fiche de poste générée dans un dictionnaire
+            fiche_contenu[title] = generated_text
+
             # Afficher la fiche de poste générée
             st.subheader(f'Fiche de Poste Générée pour {title}:')
             st.write(generated_text)
@@ -91,9 +95,12 @@ if st.button('Générer la Fiche de Poste'):
 
 # --- Liste des liens pour chaque fiche de poste générée ---
 if generated_fiches:
-    st.subheader('Sommaire des Fiches de Poste générées:')
+    st.subheader('Liste des Fiches de Poste générées:')
     for fiche in generated_fiches:
-        st.markdown(f"[{fiche}]({fiche})")
+        # On obtient le nom de l'entreprise (si disponible)
+        entreprise = "Société inconnue"  # Valeur par défaut
+        # Générer un lien cliquable
+        st.markdown(f"[{fiche}_{entreprise}](#{fiche})")
 
 # --- Ajouter un bouton pour générer les fiches de poste depuis le fichier RPO ---
 if st.button('Générer à partir du fichier RPO'):
@@ -104,7 +111,7 @@ if st.button('Générer à partir du fichier RPO'):
         for poste_selectionne in donnees_rpo[1:]:  # Ignore la première ligne (les en-têtes)
             # Vérifier si les données sont présentes avant de les ajouter
             titre_poste = poste_selectionne[5] if len(poste_selectionne) > 5 else 'Titre non spécifié'
-            entreprise = poste_selectionne[9] if len(poste_selectionne) > 9 else 'Entreprise non spécifiée'
+            entreprise = poste_selectionne[9] if len(poste_selectionne) > 9 else 'Société inconnue'
             # Construire le prompt pour l'AI
             prompt_fiche = f"Fiche de poste pour {titre_poste} à {entreprise}."
 
@@ -120,9 +127,8 @@ if st.button('Générer à partir du fichier RPO'):
 
             generated_text = response['choices'][0]['message']['content'].strip()
 
-            # Afficher la fiche de poste générée
-            st.subheader(f'Fiche de Poste Générée pour {titre_poste}:')
-            st.write(generated_text)
+            # Stocker la fiche de poste générée dans un dictionnaire
+            fiche_contenu[f"{titre_poste}_{entreprise}"] = generated_text
 
             # Ajouter le titre de cette fiche de poste à la liste
             generated_fiches.append(f"{titre_poste}_{entreprise}")
@@ -130,7 +136,14 @@ if st.button('Générer à partir du fichier RPO'):
         # Afficher la liste des liens après avoir généré toutes les fiches
         st.subheader('Sommaire des Fiches de Poste générées à partir du fichier RPO:')
         for fiche in generated_fiches:
-            st.markdown(f"[{fiche}]({fiche})")
+            # Affichage des liens cliquables
+            st.markdown(f"[{fiche}](#{fiche})")
 
     except Exception as e:
         st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
+
+# --- Affichage de la fiche lorsqu'on clique sur le lien ---
+for fiche, contenu in fiche_contenu.items():
+    st.markdown(f"<a name='{fiche}'></a>", unsafe_allow_html=True)
+    st.subheader(f"Fiche de Poste pour {fiche}:")
+    st.write(contenu)
