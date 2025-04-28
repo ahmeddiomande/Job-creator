@@ -1,11 +1,12 @@
 import openai
 import streamlit as st
 import json
-from dotenv import load_dotenv  # Pour charger les variables d'environnement
+import re
+from dotenv import load_dotenv  # Pour charger les variables d'environnement à partir d'un fichier .env
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# Charger la clé API OpenAI et Google depuis les variables d'environnement
+# Charger la clé API OpenAI depuis les secrets de Streamlit
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # Récupérer la clé Google Sheets depuis les secrets Streamlit
@@ -31,9 +32,18 @@ def recuperer_donnees_google_sheet():
     values = result.get('values', [])
     return values
 
-# --- Mise en forme de l'interface Streamlit ---
+# --- Fonction pour nettoyer les caractères spéciaux et les espaces ---
+def clean_string(s):
+    # Remplacer les espaces par des underscores et enlever les caractères spéciaux
+    s = s.replace(" ", "_")
+    s = re.sub(r'[^a-zA-Z0-9_]', '', s)  # Enlever tous les caractères spéciaux
+    return s
 
-# Afficher l'image transparente en en-tête
+# --- Liste des fiches de poste générées ---
+generated_fiches = []
+fiche_contenu = {}
+
+# --- Affichage de l'image transparente en entête ---
 st.image("assets/logo.png", width=400)
 
 # Titre principal
@@ -55,10 +65,6 @@ Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 # --- Zone de saisie du prompt de l'utilisateur ---
 user_prompt = st.text_area("Écrivez ici votre prompt pour générer une fiche de poste :", 
                           "Entrez ici le prompt pour ChatGPT...")
-
-# Liste des fiches de poste générées
-generated_fiches = []
-fiche_contenu = {}
 
 # --- Bouton pour envoyer la demande à OpenAI ---
 if st.button('Générer la Fiche de Poste'):
@@ -93,14 +99,28 @@ if st.button('Générer la Fiche de Poste'):
     else:
         st.warning("Veuillez entrer un prompt avant de soumettre.")
 
-# --- Liste des liens pour chaque fiche de poste générée ---
+# --- Affichage des liens cliquables pour chaque fiche de poste ---
 if generated_fiches:
-    st.subheader('Liste des Fiches de Poste générées:')
-    for fiche in generated_fiches:
-        # On obtient le nom de l'entreprise (si disponible)
-        entreprise = "Société inconnue"  # Valeur par défaut
-        # Générer un lien cliquable
-        st.markdown(f"[{fiche}_{entreprise}](#{fiche})")
+    st.subheader('Liste des Fiches de Poste générées :')
+    
+    for poste in generated_fiches:
+        # Récupérer les informations sur le poste et l'entreprise
+        titre_poste = poste.split('_')[0]  # Utiliser juste le titre sans l'entreprise
+        entreprise = "Société inconnue"  # Si l'entreprise n'est pas spécifiée
+        
+        # Nettoyer les noms des titres de postes et entreprises
+        titre_poste_clean = clean_string(titre_poste)
+        entreprise_clean = clean_string(entreprise)
+        
+        # Créer un lien cliquable
+        st.markdown(f"[{titre_poste} ({entreprise})](#{titre_poste_clean}_{entreprise_clean})")
+
+# --- Affichage de la fiche de poste lorsqu'on clique sur le lien ---
+for fiche, contenu in fiche_contenu.items():
+    # Ajouter une ancre pour que le lien fonctionne
+    st.markdown(f"<a name='{fiche}'></a>", unsafe_allow_html=True)
+    st.subheader(f"Fiche de Poste pour {fiche}:")
+    st.write(contenu)
 
 # --- Ajouter un bouton pour générer les fiches de poste depuis le fichier RPO ---
 if st.button('Générer à partir du fichier RPO'):
@@ -112,6 +132,11 @@ if st.button('Générer à partir du fichier RPO'):
             # Vérifier si les données sont présentes avant de les ajouter
             titre_poste = poste_selectionne[5] if len(poste_selectionne) > 5 else 'Titre non spécifié'
             entreprise = poste_selectionne[9] if len(poste_selectionne) > 9 else 'Société inconnue'
+            
+            # Nettoyer les noms des titres de postes et entreprises
+            titre_poste_clean = clean_string(titre_poste)
+            entreprise_clean = clean_string(entreprise)
+
             # Construire le prompt pour l'AI
             prompt_fiche = f"Fiche de poste pour {titre_poste} à {entreprise}."
 
@@ -141,9 +166,3 @@ if st.button('Générer à partir du fichier RPO'):
 
     except Exception as e:
         st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
-
-# --- Affichage de la fiche lorsqu'on clique sur le lien ---
-for fiche, contenu in fiche_contenu.items():
-    st.markdown(f"<a name='{fiche}'></a>", unsafe_allow_html=True)
-    st.subheader(f"Fiche de Poste pour {fiche}:")
-    st.write(contenu)
