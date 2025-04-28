@@ -42,7 +42,7 @@ Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 
 
 ### Instructions :
-- Personalisé vos fiches de postes dans la zone de texte ci-dessous.
+- Personalisez vos fiches de postes dans la zone de texte ci-dessous.
 - Cliquez sur le bouton "Générer la Fiche de Poste" pour obtenir une fiche automatiquement générée.
 - La fiche sera basée sur votre description du poste et des critères de sélection.
 
