@@ -6,11 +6,7 @@ from dotenv import load_dotenv  # Pour charger les variables d'environnement à 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# Charger les variables d'environnement depuis le fichier .env
-load_dotenv()  # Charge les variables d'environnement à partir du fichier .env
-
-# Récupérer la clé API OpenAI depuis les variables d'environnement
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Ou st.secrets["openai"]["api_key"]
+openai.api_key = st.secrets["openai"]["api_key"]
 
 # Récupérer la clé Google Sheets depuis les secrets Streamlit
 google_api_key = st.secrets["google"]["google_api_key"]
