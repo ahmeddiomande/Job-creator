@@ -1,12 +1,13 @@
 import openai
 import streamlit as st
 import json
-import re
+import os
 from dotenv import load_dotenv  # Pour charger les variables d'environnement à partir d'un fichier .env
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import re
 
-# Charger la clé API OpenAI depuis les secrets de Streamlit
+# Charger la clé API OpenAI depuis Streamlit
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # Récupérer la clé Google Sheets depuis les secrets Streamlit
@@ -99,24 +100,21 @@ if st.button('Générer la Fiche de Poste'):
     else:
         st.warning("Veuillez entrer un prompt avant de soumettre.")
 
-# --- Affichage des liens cliquables pour chaque fiche de poste ---
+# --- Affichage du sommaire des fiches de poste ---
 if generated_fiches:
     st.subheader('Liste des Fiches de Poste générées :')
     
-    for poste in generated_fiches:
-        # Récupérer les informations sur le poste et l'entreprise
-        titre_poste = poste.split('_')[0]  # Utiliser juste le titre sans l'entreprise
-        entreprise = "Société inconnue"  # Si l'entreprise n'est pas spécifiée
-        
-        # Nettoyer les noms des titres de postes et entreprises
-        titre_poste_clean = clean_string(titre_poste)
-        entreprise_clean = clean_string(entreprise)
-        
-        # Créer un lien cliquable
-        st.markdown(f"[{titre_poste} ({entreprise})](#{titre_poste_clean}_{entreprise_clean})")
+    # Affichage de chaque fiche avec un titre propre et numéroté
+    for idx, poste in enumerate(generated_fiches, 1):
+        # Nettoyer les noms des titres de postes
+        titre_poste_clean = clean_string(poste)
+        entreprise_clean = clean_string("Société inconnue")  # Par défaut si l'entreprise est inconnue
 
-# --- Affichage de la fiche de poste lorsqu'on clique sur le lien ---
-for fiche, contenu in fiche_contenu.items():
+        # Créer un lien cliquable sans caractères spéciaux
+        st.markdown(f"{idx}. {poste} (Entreprise: {entreprise_clean})")
+
+# --- Affichage des fiches de poste lorsqu'on clique sur le lien ---
+for idx, (fiche, contenu) in enumerate(fiche_contenu.items(), 1):
     # Ajouter une ancre pour que le lien fonctionne
     st.markdown(f"<a name='{fiche}'></a>", unsafe_allow_html=True)
     st.subheader(f"Fiche de Poste pour {fiche}:")
@@ -162,7 +160,7 @@ if st.button('Générer à partir du fichier RPO'):
         st.subheader('Sommaire des Fiches de Poste générées à partir du fichier RPO:')
         for fiche in generated_fiches:
             # Affichage des liens cliquables
-            st.markdown(f"[{fiche}](#{fiche})")
+            st.markdown(f"{generated_fiches.index(fiche) + 1}. {fiche}")
 
     except Exception as e:
         st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
