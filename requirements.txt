@@ -4,7 +4,7 @@ openpyxl
 python-docx
 google-api-python-client
 google-auth
-openai
+openai==0.28.0
 requests
 python-dotenv
 

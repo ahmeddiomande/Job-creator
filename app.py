@@ -2,7 +2,7 @@ import openai
 import streamlit as st
 import json
 import os
-from dotenv import load_dotenv  # Importer load_dotenv
+from dotenv import load_dotenv  # Pour charger les variables d'environnement à partir d'un fichier .env
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -63,16 +63,19 @@ user_prompt = st.text_area("Écrivez ici votre prompt pour générer une fiche d
 if st.button('Générer la Fiche de Poste'):
     if user_prompt:
         try:
-            # Appeler l'API OpenAI avec le prompt de l'utilisateur
-            response = openai.Completion.create(
+            # Appeler l'API OpenAI avec le prompt de l'utilisateur en utilisant ChatCompletion
+            response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",  # Ou gpt-4 si tu l'as
-                prompt=user_prompt,  # Utilisez directement le prompt comme chaîne de caractères
+                messages=[
+                    {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
+                    {"role": "user", "content": user_prompt}
+                ],
                 max_tokens=500
             )
             
             # Afficher la réponse générée par ChatGPT
             st.subheader('Fiche de Poste Générée:')
-            st.write(response['choices'][0]['text'].strip())
+            st.write(response['choices'][0]['message']['content'].strip())
         
         except Exception as e:
             st.error(f"Erreur lors de la génération de la fiche de poste : {e}")
@@ -111,15 +114,18 @@ if st.button('Générer à partir du fichier RPO'):
             prompt_fiche += f"- Localisation : {localisation}\n" if localisation else ""
 
             # Appeler l'API OpenAI pour générer la fiche de poste
-            response = openai.Completion.create(
+            response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",  # Ou gpt-4 si tu l'as
-                prompt=prompt_fiche,
+                messages=[
+                    {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
+                    {"role": "user", "content": prompt_fiche}
+                ],
                 max_tokens=500
             )
 
             # Afficher la réponse générée par ChatGPT
             st.subheader(f'Fiche de Poste pour {titre_poste}:')
-            st.write(response['choices'][0]['text'].strip())
+            st.write(response['choices'][0]['message']['content'].strip())
         
     except Exception as e:
         st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
