@@ -39,7 +39,7 @@ st.title('🎯 IDEALMATCH JOB CREATOR')
 # Texte introductif
 st.markdown("""
 Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !  
-Cet outil vous permet de générer des fiches de poste personnalisées à l'aide de l'intelligence artificielle (ChatGPT).
+
 
 ### Instructions :
 - Personalisé vos fiches de postes dans la zone de texte ci-dessous.
