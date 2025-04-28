@@ -5,9 +5,7 @@ import os
 from dotenv import load_dotenv  # Pour charger les variables d'environnement à partir d'un fichier .env
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-import re
 
-# Charger la clé API OpenAI depuis Streamlit
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # Récupérer la clé Google Sheets depuis les secrets Streamlit
@@ -33,18 +31,9 @@ def recuperer_donnees_google_sheet():
     values = result.get('values', [])
     return values
 
-# --- Fonction pour nettoyer les caractères spéciaux et les espaces ---
-def clean_string(s):
-    # Remplacer les espaces par des underscores et enlever les caractères spéciaux
-    s = s.replace(" ", "_")
-    s = re.sub(r'[^a-zA-Z0-9_]', '', s)  # Enlever tous les caractères spéciaux
-    return s
+# --- Mise en forme de l'interface Streamlit ---
 
-# --- Liste des fiches de poste générées ---
-generated_fiches = []
-fiche_contenu = {}
 
-# --- Affichage de l'image transparente en entête ---
 st.image("assets/logo.png", width=400)
 
 # Titre principal
@@ -52,10 +41,11 @@ st.title('🎯 IDEALMATCH JOB CREATOR')
 
 # Texte introductif
 st.markdown("""
-Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
+Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !  
+
 
 ### Instructions :
-- Personnalisez vos fiches de postes dans la zone de texte ci-dessous.
+- Personalisez vos fiches de postes dans la zone de texte ci-dessous.
 - Cliquez sur le bouton "Générer la Fiche de Poste" pour obtenir une fiche automatiquement générée.
 - La fiche sera basée sur votre description du poste et des critères de sélection.
 
@@ -81,44 +71,14 @@ if st.button('Générer la Fiche de Poste'):
                 max_tokens=500
             )
             
-            # Récupérer la réponse générée par ChatGPT
-            generated_text = response['choices'][0]['message']['content'].strip()
-
-            # Générer un titre pour chaque fiche en fonction du prompt
-            title = user_prompt.split(" ")[0]  # Exemple : Utiliser le premier mot du prompt comme titre
-            generated_fiches.append(title)
-
-            # Stocker la fiche de poste générée dans un dictionnaire
-            fiche_contenu[title] = generated_text
-
-            # Afficher la fiche de poste générée
-            st.subheader(f'Fiche de Poste Générée pour {title}:')
-            st.write(generated_text)
-
+            # Afficher la réponse générée par ChatGPT
+            st.subheader('Fiche de Poste Générée:')
+            st.write(response['choices'][0]['message']['content'].strip())
+        
         except Exception as e:
             st.error(f"Erreur lors de la génération de la fiche de poste : {e}")
     else:
         st.warning("Veuillez entrer un prompt avant de soumettre.")
-
-# --- Affichage du sommaire des fiches de poste ---
-if generated_fiches:
-    st.subheader('Liste des Fiches de Poste générées :')
-    
-    # Affichage de chaque fiche avec un titre propre et numéroté
-    for idx, poste in enumerate(generated_fiches, 1):
-        # Nettoyer les noms des titres de postes
-        titre_poste_clean = clean_string(poste)
-        entreprise_clean = clean_string("Société inconnue")  # Par défaut si l'entreprise est inconnue
-
-        # Créer un lien cliquable sans caractères spéciaux
-        st.markdown(f"{idx}. {poste} (Entreprise: {entreprise_clean})")
-
-# --- Affichage des fiches de poste lorsqu'on clique sur le lien ---
-for idx, (fiche, contenu) in enumerate(fiche_contenu.items(), 1):
-    # Ajouter une ancre pour que le lien fonctionne
-    st.markdown(f"<a name='{fiche}'></a>", unsafe_allow_html=True)
-    st.subheader(f"Fiche de Poste pour {fiche}:")
-    st.write(contenu)
 
 # --- Ajouter un bouton pour générer les fiches de poste depuis le fichier RPO ---
 if st.button('Générer à partir du fichier RPO'):
@@ -129,14 +89,27 @@ if st.button('Générer à partir du fichier RPO'):
         for poste_selectionne in donnees_rpo[1:]:  # Ignore la première ligne (les en-têtes)
             # Vérifier si les données sont présentes avant de les ajouter
             titre_poste = poste_selectionne[5] if len(poste_selectionne) > 5 else 'Titre non spécifié'
-            entreprise = poste_selectionne[9] if len(poste_selectionne) > 9 else 'Société inconnue'
-            
-            # Nettoyer les noms des titres de postes et entreprises
-            titre_poste_clean = clean_string(titre_poste)
-            entreprise_clean = clean_string(entreprise)
+            duree_mission = poste_selectionne[13] if len(poste_selectionne) > 13 else '6 mois'  # Valeur par défaut
+            statut_mission = poste_selectionne[6] if len(poste_selectionne) > 6 else ''
+            salaire = poste_selectionne[14] if len(poste_selectionne) > 14 else ''
+            teletravail = poste_selectionne[18] if len(poste_selectionne) > 18 else ''
+            date_demarrage = poste_selectionne[12] if len(poste_selectionne) > 12 else ''
+            competences = poste_selectionne[17] if len(poste_selectionne) > 17 else ''
+            projet = poste_selectionne[15] if len(poste_selectionne) > 15 else ''
+            client = poste_selectionne[9] if len(poste_selectionne) > 9 else ''
+            localisation = poste_selectionne[10] if len(poste_selectionne) > 10 else ''
 
-            # Construire le prompt pour l'AI
-            prompt_fiche = f"Fiche de poste pour {titre_poste} à {entreprise}."
+            # Construire le prompt en n'ajoutant que les informations disponibles
+            prompt_fiche = "Description du poste :\n"
+            prompt_fiche += f"- Titre du poste recherché : {titre_poste}\n"
+            prompt_fiche += f"- Durée de la mission : {duree_mission}\n"
+            prompt_fiche += f"- Statut mission : {statut_mission}\n" if statut_mission else ""
+            prompt_fiche += f"- Projet : {projet}\n" if projet else ""
+            prompt_fiche += f"- Compétences : {competences}\n" if competences else ""
+            prompt_fiche += f"- Salaire : {salaire}\n" if salaire else ""
+            prompt_fiche += f"- Télétravail : {teletravail}\n" if teletravail else ""
+            prompt_fiche += f"- Date de démarrage : {date_demarrage}\n" if date_demarrage else ""
+            prompt_fiche += f"- Localisation : {localisation}\n" if localisation else ""
 
             # Appeler l'API OpenAI pour générer la fiche de poste
             response = openai.ChatCompletion.create(
@@ -148,19 +121,9 @@ if st.button('Générer à partir du fichier RPO'):
                 max_tokens=500
             )
 
-            generated_text = response['choices'][0]['message']['content'].strip()
-
-            # Stocker la fiche de poste générée dans un dictionnaire
-            fiche_contenu[f"{titre_poste}_{entreprise}"] = generated_text
-
-            # Ajouter le titre de cette fiche de poste à la liste
-            generated_fiches.append(f"{titre_poste}_{entreprise}")
-
-        # Afficher la liste des liens après avoir généré toutes les fiches
-        st.subheader('Sommaire des Fiches de Poste générées à partir du fichier RPO:')
-        for fiche in generated_fiches:
-            # Affichage des liens cliquables
-            st.markdown(f"{generated_fiches.index(fiche) + 1}. {fiche}")
-
+            # Afficher la réponse générée par ChatGPT
+            st.subheader(f'Fiche de Poste pour {titre_poste}:')
+            st.write(response['choices'][0]['message']['content'].strip())
+        
     except Exception as e:
         st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
