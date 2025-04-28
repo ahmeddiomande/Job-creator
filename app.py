@@ -1,10 +1,10 @@
 import openai
 import streamlit as st
 import json
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 import os
 from dotenv import load_dotenv
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 # Charger les variables d'environnement depuis le fichier .env
 load_dotenv()
@@ -12,13 +12,14 @@ load_dotenv()
 # Récupérer la clé API OpenAI depuis les variables d'environnement
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Récupérer la clé API Google Sheets depuis les variables d'environnement
+# Récupérer la clé Google Sheets depuis les variables d'environnement
 google_api_key = os.getenv("GOOGLE_API_KEY")
 
+# Charger la clé JSON Google en utilisant json.loads, car elle est stockée comme une chaîne
+google_credentials_dict = json.loads(google_api_key)
+
 # Créer les identifiants d'authentification pour l'API Google Sheets en utilisant la clé JSON récupérée
-credentials = service_account.Credentials.from_service_account_info(
-    json.loads(google_api_key)
-)
+credentials = service_account.Credentials.from_service_account_info(google_credentials_dict)
 
 # ID de ton fichier Google Sheets et la plage de données que tu souhaites récupérer
 SPREADSHEET_ID = '1wl_OvLv7c8iN8Z40Xutu7CyrN9rTIQeKgpkDJFtyKIU'  # Remplace par ton propre ID
