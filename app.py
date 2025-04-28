@@ -42,13 +42,12 @@ Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 Cet outil vous permet de générer des fiches de poste personnalisées à l'aide de l'intelligence artificielle (ChatGPT).
 
 ### Instructions :
-- Entrez votre **prompt personnalisé** dans la zone de texte ci-dessous.
+- Personalisé vos fiches de postes dans la zone de texte ci-dessous.
 - Cliquez sur le bouton "Générer la Fiche de Poste" pour obtenir une fiche automatiquement générée.
 - La fiche sera basée sur votre description du poste et des critères de sélection.
 
 📝 **Astuces** :
 - Soyez précis dans votre description pour obtenir les meilleurs résultats.
-- L'outil utilise la dernière version de GPT-3.5 pour vous fournir des résultats de qualité.
 """)
 
 # --- Zone de saisie du prompt de l'utilisateur ---
