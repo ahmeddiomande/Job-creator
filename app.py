@@ -35,7 +35,7 @@ def recuperer_donnees_google_sheet():
 # --- Mise en forme de l'interface Streamlit ---
 
 # Afficher l'image transparente en en-tête
-st.image("/mnt/data/A_logo_for_'Ideal_Match_Job_Creator'_is_displayed_.png", width=400)
+st.image("assets/logo.png", width=400)
 
 # Titre principal
 st.title('🎯 IDEALMATCH JOB CREATOR')
