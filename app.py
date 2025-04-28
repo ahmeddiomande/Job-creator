@@ -13,7 +13,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Récupérer la clé Google Sheets depuis les variables d'environnement
-google_api_key = os.getenv("GOOGLE_API_KEY")
+google_api_key = st.secrets["google"]["google_api_key"]
 
 # Charger la clé JSON Google en utilisant json.loads, car elle est stockée comme une chaîne
 google_credentials_dict = json.loads(google_api_key)
