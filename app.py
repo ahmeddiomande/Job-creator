@@ -3,12 +3,17 @@ import streamlit as st
 import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import os
+from dotenv import load_dotenv
 
-# Récupérer la clé API OpenAI depuis les secrets de Streamlit (de `secrets.toml` dans `.streamlit/`)
-openai.api_key = st.secrets["openai"]["api_key"]
+# Charger les variables d'environnement depuis le fichier .env
+load_dotenv()
 
-# Récupérer la clé Google Sheets depuis les secrets de Streamlit (de `secrets.toml` dans `.streamlit/`)
-google_api_key = st.secrets["google"]["google_api_key"]
+# Récupérer la clé API OpenAI depuis les variables d'environnement
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Récupérer la clé API Google Sheets depuis les variables d'environnement
+google_api_key = os.getenv("GOOGLE_API_KEY")
 
 # Créer les identifiants d'authentification pour l'API Google Sheets en utilisant la clé JSON récupérée
 credentials = service_account.Credentials.from_service_account_info(
