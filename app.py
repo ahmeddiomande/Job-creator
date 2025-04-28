@@ -6,6 +6,7 @@ from dotenv import load_dotenv  # Pour charger les variables d'environnement à 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+# Charger la clé API OpenAI et Google depuis les variables d'environnement
 openai.api_key = st.secrets["openai"]["api_key"]
 
 # Récupérer la clé Google Sheets depuis les secrets Streamlit
@@ -33,13 +34,15 @@ def recuperer_donnees_google_sheet():
 
 # --- Mise en forme de l'interface Streamlit ---
 
+# Afficher l'image transparente en en-tête
+st.image("/mnt/data/A_logo_for_'Ideal_Match_Job_Creator'_is_displayed_.png", width=400)
+
 # Titre principal
 st.title('🎯 IDEALMATCH JOB CREATOR')
 
 # Texte introductif
 st.markdown("""
-Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !  
-
+Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 
 ### Instructions :
 - Personalisez vos fiches de postes dans la zone de texte ci-dessous.
