@@ -26,14 +26,11 @@ if 'fiches' not in st.session_state:
     st.session_state['fiches'] = []
 if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
-if 'onglet' not in st.session_state:
-    st.session_state['onglet'] = "Générateur de Fiche"
 
-# Navigation simulée
-onglet = st.radio("Navigation", ["Générateur de Fiche", "Trouver un candidat"], index=0 if st.session_state['onglet'] == "Générateur de Fiche" else 1)
-st.session_state['onglet'] = onglet
+# Interface avec tabs
+onglet1, onglet2 = st.tabs(["Générateur de Fiche", "Trouver un candidat"])
 
-if onglet == "Générateur de Fiche":
+with onglet1:
     st.image("assets/logo.png", width=400)
     st.title('🎯 IDEALMATCH JOB CREATOR')
 
@@ -112,10 +109,8 @@ if onglet == "Générateur de Fiche":
                 submit = st.form_submit_button("Trouver le candidat idéal")
                 if submit:
                     st.session_state['fiche_selectionnee'] = fiche
-                    st.session_state['onglet'] = "Trouver un candidat"
-                    st.experimental_rerun()
 
-elif onglet == "Trouver un candidat":
+with onglet2:
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
     if fiche:
