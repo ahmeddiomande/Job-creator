@@ -19,11 +19,13 @@ def recuperer_donnees_google_sheet():
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
     return result.get('values', [])
 
-# Initialisation état session
+# Initialisation session
 if 'onglet_actif' not in st.session_state:
     st.session_state['onglet_actif'] = 0
 if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
+if 'fiches' not in st.session_state:
+    st.session_state['fiches'] = []
 
 # Onglets
 tabs = st.tabs(["🏠 Générateur de Fiche", "🔎 TROUVE UN CANDIDAT"])
@@ -44,7 +46,7 @@ with tabs[0]:
     📝 **Astuces** : Soyez précis dans votre description.
     """)
 
-    # Fiche manuelle
+    # Zone de prompt libre
     user_prompt = st.text_area("Écrivez ici votre prompt :", "Entrez ici le prompt pour ChatGPT...")
 
     if st.button('Générer la Fiche de Poste', key="btn_manual"):
@@ -59,20 +61,13 @@ with tabs[0]:
                     max_tokens=500
                 )
                 fiche = response['choices'][0]['message']['content'].strip()
-                st.subheader("Fiche générée :")
-                st.write(fiche)
-                with st.form(key="form_prompt"):
-                    submit = st.form_submit_button("Trouver le candidat idéal")
-                    if submit:
-                        st.session_state['fiche_selectionnee'] = fiche
-                        st.session_state['onglet_actif'] = 1
-                        st.experimental_rerun()
+                st.session_state['fiches'].append(fiche)
             except Exception as e:
                 st.error(f"Erreur : {e}")
         else:
             st.warning("Veuillez entrer un prompt.")
 
-    # Fiches depuis RPO
+    # Bouton : générer à partir du fichier RPO
     if st.button("Générer à partir du fichier RPO"):
         try:
             donnees = recuperer_donnees_google_sheet()
@@ -95,24 +90,29 @@ with tabs[0]:
                     max_tokens=500
                 )
                 fiche = response['choices'][0]['message']['content'].strip()
-                with st.container():
-                    st.subheader(f"Fiche : {titre}")
-                    st.write(fiche)
-                    with st.form(key=f"form_rpo_{i}"):
-                        submit = st.form_submit_button("Trouver le candidat idéal")
-                        if submit:
-                            st.session_state['fiche_selectionnee'] = fiche
-                            st.session_state['onglet_actif'] = 1
-                            st.experimental_rerun()
+                st.session_state['fiches'].append(fiche)
         except Exception as e:
             st.error(f"Erreur : {e}")
 
-# Onglet 2 : Recherche Candidat
+    # Affichage de toutes les fiches générées
+    for i, fiche in enumerate(st.session_state['fiches']):
+        with st.container():
+            st.subheader(f"Fiche {i+1} :")
+            st.write(fiche)
+            with st.form(key=f"form_{i}"):
+                submit = st.form_submit_button("Trouver le candidat idéal")
+                if submit:
+                    st.session_state['fiche_selectionnee'] = fiche
+                    st.session_state['onglet_actif'] = 1
+                    st.rerun()
+
+# Onglet 2 : Candidat
 with tabs[1]:
     st.title("🔎 TROUVE UN CANDIDAT")
 
-    if st.session_state.get('fiche_selectionnee'):
+    fiche = st.session_state.get('fiche_selectionnee')
+    if fiche:
         st.markdown("### 📄 Fiche de poste sélectionnée :")
-        st.write(st.session_state['fiche_selectionnee'])
+        st.write(fiche)
     else:
         st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
