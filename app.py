@@ -1,11 +1,13 @@
 import openai
 import streamlit as st
 import json
+import os
+from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# Authentification API
 openai.api_key = st.secrets["openai"]["api_key"]
+
 google_api_key = st.secrets["google"]["google_api_key"]
 google_credentials_dict = json.loads(google_api_key)
 credentials = service_account.Credentials.from_service_account_info(google_credentials_dict)
@@ -19,61 +21,99 @@ def recuperer_donnees_google_sheet():
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
     return result.get('values', [])
 
-# Initialisation session
-if 'fiche_selectionnee' not in st.session_state:
-    st.session_state['fiche_selectionnee'] = None
+# --- Initialisation session ---
 if 'fiches' not in st.session_state:
     st.session_state['fiches'] = []
+if 'fiche_selectionnee' not in st.session_state:
+    st.session_state['fiche_selectionnee'] = None
 
-# Onglets
 onglet1, onglet2 = st.tabs(["Générateur de Fiche", "Trouver un candidat"])
 
 with onglet1:
-    st.title('Générateur de Fiche')
-    user_prompt = st.text_area("Personnalisation des fiches (style, langue, etc.)", "")
+    st.image("assets/logo.png", width=400)
+    st.title('🎯 IDEALMATCH JOB CREATOR')
 
-    if st.button("Générer à partir du fichier RPO"):
+    st.markdown("""
+    Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !  
+
+    ### Instructions :
+    - Personnalisez vos fiches de postes dans la zone de texte ci-dessous.
+    - Cliquez sur le bouton "Générer la Fiche de Poste" pour obtenir une fiche automatiquement générée.
+    - Ou cliquez sur "Générer à partir du fichier RPO" pour charger vos besoins ASI.
+    """)
+
+    user_prompt = st.text_area("Écrivez ici votre prompt pour générer une fiche de poste :", "Entrez ici le prompt pour ChatGPT...")
+
+    if st.button('Générer la Fiche de Poste'):
+        if user_prompt:
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=500
+                )
+                fiche = response['choices'][0]['message']['content'].strip()
+                st.session_state['fiches'].append({"titre": "Fiche personnalisée", "contenu": fiche})
+            except Exception as e:
+                st.error(f"Erreur lors de la génération : {e}")
+        else:
+            st.warning("Veuillez entrer un prompt.")
+
+    if st.button('Générer à partir du fichier RPO'):
         try:
-            donnees = recuperer_donnees_google_sheet()
-            for i, ligne in enumerate(donnees[1:]):
-                titre = ligne[5] if len(ligne) > 5 else 'Titre non spécifié'
-                lieu = ligne[10] if len(ligne) > 10 else ''
+            donnees_rpo = recuperer_donnees_google_sheet()
+            for ligne in donnees_rpo[1:]:
+                titre_poste = ligne[5] if len(ligne) > 5 else 'Titre non spécifié'
+                duree_mission = ligne[13] if len(ligne) > 13 else '6 mois'
+                statut_mission = ligne[6] if len(ligne) > 6 else ''
                 salaire = ligne[14] if len(ligne) > 14 else ''
+                teletravail = ligne[18] if len(ligne) > 18 else ''
+                date_demarrage = ligne[12] if len(ligne) > 12 else ''
+                competences = ligne[17] if len(ligne) > 17 else ''
+                projet = ligne[15] if len(ligne) > 15 else ''
+                localisation = ligne[10] if len(ligne) > 10 else ''
 
-                prompt = user_prompt.strip() + "\n\n"
-                prompt += f"Titre : {titre}\n"
-                prompt += f"Lieu : {lieu}\n" if lieu else ""
-                prompt += f"Salaire : {salaire}\n" if salaire else ""
+                prompt_fiche = user_prompt.strip() + "\n\n"
+                prompt_fiche += f"Titre : {titre_poste}\n"
+                prompt_fiche += f"Durée : {duree_mission}\n"
+                prompt_fiche += f"Statut : {statut_mission}\n" if statut_mission else ""
+                prompt_fiche += f"Projet : {projet}\n" if projet else ""
+                prompt_fiche += f"Compétences : {competences}\n" if competences else ""
+                prompt_fiche += f"Salaire : {salaire}\n" if salaire else ""
+                prompt_fiche += f"Télétravail : {teletravail}\n" if teletravail else ""
+                prompt_fiche += f"Démarrage : {date_demarrage}\n" if date_demarrage else ""
+                prompt_fiche += f"Localisation : {localisation}\n" if localisation else ""
 
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": "Tu es un assistant RH qui suit les instructions utilisateur à la lettre."},
-                        {"role": "user", "content": prompt.strip()}
+                        {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
+                        {"role": "user", "content": prompt_fiche.strip()}
                     ],
                     max_tokens=500
                 )
-
                 fiche = response['choices'][0]['message']['content'].strip()
-                st.session_state['fiches'].append({"titre": titre, "contenu": fiche})
+                st.session_state['fiches'].append({"titre": titre_poste, "contenu": fiche})
         except Exception as e:
-            st.error(f"Erreur : {e}")
+            st.error(f"Erreur lors du traitement des données : {e}")
 
     for i, fiche in enumerate(st.session_state['fiches']):
-        if isinstance(fiche, dict) and 'titre' in fiche and 'contenu' in fiche:
-            with st.container():
-                st.markdown(f"**{fiche['titre']}**")
-                st.markdown(fiche['contenu'], unsafe_allow_html=False)
-                with st.form(key=f"form_{i}"):
-                    submit = st.form_submit_button("Trouver le candidat idéal")
-                    if submit:
-                        st.session_state['fiche_selectionnee'] = fiche
-                        st.experimental_rerun()
+        if isinstance(fiche, dict):
+            st.markdown(f"**{fiche['titre']}**")
+            st.markdown(fiche['contenu'], unsafe_allow_html=False)
+            with st.form(key=f"form_{i}"):
+                submit = st.form_submit_button("Trouver le candidat idéal")
+                if submit:
+                    st.session_state['fiche_selectionnee'] = fiche
+                    st.experimental_rerun()
 
 with onglet2:
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
-    if isinstance(fiche, dict) and 'titre' in fiche and 'contenu' in fiche:
+    if fiche:
         st.markdown(f"**{fiche['titre']}**")
         st.markdown(fiche['contenu'], unsafe_allow_html=False)
     else:
