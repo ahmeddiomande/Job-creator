@@ -26,10 +26,14 @@ if 'fiches' not in st.session_state:
     st.session_state['fiches'] = []
 if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
+if 'onglet' not in st.session_state:
+    st.session_state['onglet'] = "Générateur de Fiche"
 
-onglet1, onglet2 = st.tabs(["Générateur de Fiche", "Trouver un candidat"])
+# Navigation simulée
+onglet = st.radio("Navigation", ["Générateur de Fiche", "Trouver un candidat"], index=0 if st.session_state['onglet'] == "Générateur de Fiche" else 1)
+st.session_state['onglet'] = onglet
 
-with onglet1:
+if onglet == "Générateur de Fiche":
     st.image("assets/logo.png", width=400)
     st.title('🎯 IDEALMATCH JOB CREATOR')
 
@@ -102,19 +106,20 @@ with onglet1:
 
     for i, fiche in enumerate(st.session_state['fiches']):
         if isinstance(fiche, dict):
-            st.markdown(f"**{fiche['titre']}**")
+            st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
             st.markdown(fiche['contenu'], unsafe_allow_html=False)
             with st.form(key=f"form_{i}"):
                 submit = st.form_submit_button("Trouver le candidat idéal")
                 if submit:
                     st.session_state['fiche_selectionnee'] = fiche
+                    st.session_state['onglet'] = "Trouver un candidat"
                     st.experimental_rerun()
 
-with onglet2:
+elif onglet == "Trouver un candidat":
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
     if fiche:
-        st.markdown(f"**{fiche['titre']}**")
+        st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
         st.markdown(fiche['contenu'], unsafe_allow_html=False)
     else:
         st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
