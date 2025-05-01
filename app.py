@@ -60,19 +60,20 @@ with onglet1:
             st.error(f"Erreur : {e}")
 
     for i, fiche in enumerate(st.session_state['fiches']):
-        with st.container():
-            st.markdown(f"**{fiche['titre']}**")
-            st.markdown(fiche['contenu'], unsafe_allow_html=False)
-            with st.form(key=f"form_{i}"):
-                submit = st.form_submit_button("Trouver le candidat idéal")
-                if submit:
-                    st.session_state['fiche_selectionnee'] = fiche
-                    st.experimental_rerun()
+        if isinstance(fiche, dict) and 'titre' in fiche and 'contenu' in fiche:
+            with st.container():
+                st.markdown(f"**{fiche['titre']}**")
+                st.markdown(fiche['contenu'], unsafe_allow_html=False)
+                with st.form(key=f"form_{i}"):
+                    submit = st.form_submit_button("Trouver le candidat idéal")
+                    if submit:
+                        st.session_state['fiche_selectionnee'] = fiche
+                        st.experimental_rerun()
 
 with onglet2:
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
-    if fiche:
+    if isinstance(fiche, dict) and 'titre' in fiche and 'contenu' in fiche:
         st.markdown(f"**{fiche['titre']}**")
         st.markdown(fiche['contenu'], unsafe_allow_html=False)
     else:
