@@ -33,7 +33,6 @@ def recuperer_donnees_google_sheet():
 
 # --- Mise en forme de l'interface Streamlit ---
 
-
 st.image("assets/logo.png", width=400)
 
 # Titre principal
@@ -70,11 +69,12 @@ if st.button('Générer la Fiche de Poste'):
                 ],
                 max_tokens=500
             )
-            
             # Afficher la réponse générée par ChatGPT
             st.subheader('Fiche de Poste Générée:')
-            st.write(response['choices'][0]['message']['content'].strip())
-        
+            fiche_generee = response['choices'][0]['message']['content'].strip()
+            st.write(fiche_generee)
+            if st.button("Trouver le candidat idéal", key="btn_prompt"):
+                st.success("Lancement de la recherche pour la fiche générée ci-dessus.")
         except Exception as e:
             st.error(f"Erreur lors de la génération de la fiche de poste : {e}")
     else:
@@ -86,10 +86,9 @@ if st.button('Générer à partir du fichier RPO'):
     try:
         donnees_rpo = recuperer_donnees_google_sheet()
 
-        for poste_selectionne in donnees_rpo[1:]:  # Ignore la première ligne (les en-têtes)
-            # Vérifier si les données sont présentes avant de les ajouter
+        for i, poste_selectionne in enumerate(donnees_rpo[1:]):  # Ignore la première ligne (les en-têtes)
             titre_poste = poste_selectionne[5] if len(poste_selectionne) > 5 else 'Titre non spécifié'
-            duree_mission = poste_selectionne[13] if len(poste_selectionne) > 13 else '6 mois'  # Valeur par défaut
+            duree_mission = poste_selectionne[13] if len(poste_selectionne) > 13 else '6 mois'
             statut_mission = poste_selectionne[6] if len(poste_selectionne) > 6 else ''
             salaire = poste_selectionne[14] if len(poste_selectionne) > 14 else ''
             teletravail = poste_selectionne[18] if len(poste_selectionne) > 18 else ''
@@ -99,7 +98,6 @@ if st.button('Générer à partir du fichier RPO'):
             client = poste_selectionne[9] if len(poste_selectionne) > 9 else ''
             localisation = poste_selectionne[10] if len(poste_selectionne) > 10 else ''
 
-            # Construire le prompt en n'ajoutant que les informations disponibles
             prompt_fiche = "Description du poste :\n"
             prompt_fiche += f"- Titre du poste recherché : {titre_poste}\n"
             prompt_fiche += f"- Durée de la mission : {duree_mission}\n"
@@ -111,9 +109,8 @@ if st.button('Générer à partir du fichier RPO'):
             prompt_fiche += f"- Date de démarrage : {date_demarrage}\n" if date_demarrage else ""
             prompt_fiche += f"- Localisation : {localisation}\n" if localisation else ""
 
-            # Appeler l'API OpenAI pour générer la fiche de poste
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",  # Ou gpt-4 si tu l'as
+                model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
                     {"role": "user", "content": prompt_fiche}
@@ -121,9 +118,11 @@ if st.button('Générer à partir du fichier RPO'):
                 max_tokens=500
             )
 
-            # Afficher la réponse générée par ChatGPT
+            fiche_rpo = response['choices'][0]['message']['content'].strip()
             st.subheader(f'Fiche de Poste pour {titre_poste}:')
-            st.write(response['choices'][0]['message']['content'].strip())
-        
+            st.write(fiche_rpo)
+            if st.button("Trouver le candidat idéal", key=f"btn_rpo_{i}"):
+                st.success(f"Lancement de la recherche pour le poste : {titre_poste}")
+
     except Exception as e:
         st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
