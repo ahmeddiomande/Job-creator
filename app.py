@@ -11,7 +11,7 @@ openai.api_key = st.secrets["openai"]["api_key"]
 # Connexion MongoDB Atlas
 mongo_uri = st.secrets["mongodb"]["uri"]
 client = MongoClient(mongo_uri)
-db = client["job_creator"]
+db = client["Job_creator"]
 collection_fiches = db["fiches"]
 collection_emails = db["emails"]
 
