@@ -1,14 +1,21 @@
 import openai
 import streamlit as st
 import json
-import os
-from dotenv import load_dotenv
+from pymongo import MongoClient
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # --- Configuration des API ---
 openai.api_key = st.secrets["openai"]["api_key"]
 
+# Connexion MongoDB Atlas
+mongo_uri = st.secrets["mongodb"]["uri"]
+client = MongoClient(mongo_uri)
+db = client["job_creator"]
+collection_fiches = db["fiches"]
+collection_emails = db["emails"]
+
+# Google Sheets
 google_api_key = st.secrets["google"]["google_api_key"]
 google_credentials_dict = json.loads(google_api_key)
 credentials = service_account.Credentials.from_service_account_info(google_credentials_dict)
@@ -17,30 +24,26 @@ SPREADSHEET_ID = '1wl_OvLv7c8iN8Z40Xutu7CyrN9rTIQeKgpkDJFtyKIU'
 RANGE_NAME = 'Besoins ASI!A1:Z1000'
 service = build('sheets', 'v4', credentials=credentials)
 
-# --- Fonction de récupération de données depuis Google Sheet ---
 def recuperer_donnees_google_sheet():
     sheet = service.spreadsheets()
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
     return result.get('values', [])
 
-# --- Fonction pour extraire la localisation depuis le contenu de la fiche ---
 def extraire_ville(fiche_contenu):
     for ligne in fiche_contenu.split('\n'):
         if "localisation" in ligne.lower():
             return ligne.split(":")[-1].strip()
     return "votre région"
 
-# --- Fonction pour générer un email personnalisé ---
 def generer_email(nom_poste, ville):
     return f"""Bonjour,
 
-En découvrant votre profil, j’ai tout de suite vu une belle opportunité pour le poste de « {nom_poste} » basé à « {ville} ». Votre expérience et votre expertise dans ce domaine m’intéressent particulièrement, et je serais ravi d’échanger avec vous à ce sujet.
+En découvrant votre profil, j’ai tout de suite vu une belle opportunité pour le poste de « {nom_poste} » basé à « {ville} ». Votre expérience et votre expertise dans ce domaine m’intéressent particulièrement, et je serais ravi d’échanger avec vous à ce sujet.
 
 Je pense que cet échange pourrait être enrichissant des deux côtés. Seriez-vous disponible pour en discuter prochainement ?
 
 Au plaisir d’échanger avec vous !"""
 
-# --- Initialisation session ---
 if 'fiches' not in st.session_state:
     st.session_state['fiches'] = []
 if 'fiche_selectionnee' not in st.session_state:
@@ -50,10 +53,8 @@ if 'afficher_liste_candidats' not in st.session_state:
 if 'email_genere' not in st.session_state:
     st.session_state['email_genere'] = ""
 
-# --- Interface avec onglets ---
 onglet1, onglet2, onglet3 = st.tabs(["Générateur de Fiche", "Trouver un candidat", "Création d'email"])
 
-# --- Onglet 1 : Générateur de Fiche ---
 with onglet1:
     st.image("assets/logo.png", width=400)
     st.title('🎯 IDEALMATCH JOB CREATOR')
@@ -81,7 +82,9 @@ with onglet1:
                     max_tokens=500
                 )
                 fiche = response['choices'][0]['message']['content'].strip()
-                st.session_state['fiches'].append({"titre": "Fiche personnalisée", "contenu": fiche})
+                fiche_doc = {"titre": "Fiche personnalisée", "contenu": fiche}
+                st.session_state['fiches'].append(fiche_doc)
+                collection_fiches.insert_one(fiche_doc)
             except Exception as e:
                 st.error(f"Erreur lors de la génération : {e}")
         else:
@@ -121,7 +124,9 @@ with onglet1:
                     max_tokens=500
                 )
                 fiche = response['choices'][0]['message']['content'].strip()
-                st.session_state['fiches'].append({"titre": titre_poste, "contenu": fiche})
+                fiche_doc = {"titre": titre_poste, "contenu": fiche}
+                st.session_state['fiches'].append(fiche_doc)
+                collection_fiches.insert_one(fiche_doc)
         except Exception as e:
             st.error(f"Erreur lors du traitement des données : {e}")
 
@@ -133,14 +138,13 @@ with onglet1:
                 submit = st.form_submit_button("Trouver le candidat idéal")
                 if submit:
                     st.session_state['fiche_selectionnee'] = fiche
-                    st.session_state['afficher_liste_candidats'] = False  # Réinitialiser
+                    st.session_state['afficher_liste_candidats'] = False
 
-                    # Génération de l'email à partir de la fiche sélectionnée
                     ville = extraire_ville(fiche['contenu'])
                     email = generer_email(fiche['titre'], ville)
                     st.session_state['email_genere'] = email
+                    collection_emails.insert_one({"poste": fiche['titre'], "ville": ville, "email": email})
 
-# --- Onglet 2 : Trouver un candidat ---
 with onglet2:
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
@@ -148,7 +152,6 @@ with onglet2:
         st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
         st.markdown(fiche['contenu'], unsafe_allow_html=False)
 
-        # Bouton "Liste de candidats"
         if st.button("Liste de candidats"):
             st.session_state['afficher_liste_candidats'] = True
 
@@ -158,11 +161,18 @@ with onglet2:
     else:
         st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
 
-# --- Onglet 3 : Création d'email ---
 with onglet3:
     st.title("Création d'email")
     email = st.session_state.get('email_genere', "")
     if email:
         st.text_area("✉️ Email généré automatiquement :", email, height=220)
+
+    if st.button("📥 Voir l'historique des emails"):
+        emails = list(collection_emails.find().sort("_id", -1))
+        for mail in emails:
+            st.markdown(f"**Poste :** {mail['poste']}  ")
+            st.markdown(f"**Ville :** {mail['ville']}  ")
+            st.text_area("Email envoyé :", mail['email'], height=200)
+            st.markdown("---")
     else:
-        st.info("Aucun email généré. Cliquez sur 'Trouver le candidat idéal' pour en créer un.")
+        st.info("Cliquez sur le bouton ci-dessus pour afficher les emails enregistrés.")
