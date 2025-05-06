@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+# --- Configuration des API ---
 openai.api_key = st.secrets["openai"]["api_key"]
 
 google_api_key = st.secrets["google"]["google_api_key"]
@@ -16,6 +17,7 @@ SPREADSHEET_ID = '1wl_OvLv7c8iN8Z40Xutu7CyrN9rTIQeKgpkDJFtyKIU'
 RANGE_NAME = 'Besoins ASI!A1:Z1000'
 service = build('sheets', 'v4', credentials=credentials)
 
+# --- Fonction de récupération de données depuis Google Sheet ---
 def recuperer_donnees_google_sheet():
     sheet = service.spreadsheets()
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
@@ -27,9 +29,10 @@ if 'fiches' not in st.session_state:
 if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
 
-# Interface avec tabs
-onglet1, onglet2 = st.tabs(["Générateur de Fiche", "Trouver un candidat"])
+# --- Interface avec onglets ---
+onglet1, onglet2, onglet3 = st.tabs(["Générateur de Fiche", "Trouver un candidat", "Création d'email"])
 
+# --- Onglet 1 : Générateur de Fiche ---
 with onglet1:
     st.image("assets/logo.png", width=400)
     st.title('🎯 IDEALMATCH JOB CREATOR')
@@ -110,11 +113,20 @@ with onglet1:
                 if submit:
                     st.session_state['fiche_selectionnee'] = fiche
 
+# --- Onglet 2 : Trouver un candidat ---
 with onglet2:
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
     if fiche:
         st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
         st.markdown(fiche['contenu'], unsafe_allow_html=False)
+
+        # Bouton Liste de candidats (uniquement si fiche sélectionnée)
+        st.button("Liste de candidats")
     else:
         st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
+
+# --- Onglet 3 : Création d'email ---
+with onglet3:
+    st.title("Création d'email")
+    st.info("Interface de génération d'email à venir...")
