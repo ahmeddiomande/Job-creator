@@ -23,6 +23,23 @@ def recuperer_donnees_google_sheet():
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
     return result.get('values', [])
 
+# --- Fonction pour extraire la localisation depuis le contenu de la fiche ---
+def extraire_ville(fiche_contenu):
+    for ligne in fiche_contenu.split('\n'):
+        if "localisation" in ligne.lower():
+            return ligne.split(":")[-1].strip()
+    return "votre région"
+
+# --- Fonction pour générer un email personnalisé ---
+def generer_email(nom_poste, ville):
+    return f"""Bonjour,
+
+En découvrant votre profil, j’ai tout de suite vu une belle opportunité pour le poste de « {nom_poste} » basé à « {ville} ». Votre expérience et votre expertise dans ce domaine m’intéressent particulièrement, et je serais ravi d’échanger avec vous à ce sujet.
+
+Je pense que cet échange pourrait être enrichissant des deux côtés. Seriez-vous disponible pour en discuter prochainement ?
+
+Au plaisir d’échanger avec vous !"""
+
 # --- Initialisation session ---
 if 'fiches' not in st.session_state:
     st.session_state['fiches'] = []
@@ -30,6 +47,8 @@ if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
 if 'afficher_liste_candidats' not in st.session_state:
     st.session_state['afficher_liste_candidats'] = False
+if 'email_genere' not in st.session_state:
+    st.session_state['email_genere'] = ""
 
 # --- Interface avec onglets ---
 onglet1, onglet2, onglet3 = st.tabs(["Générateur de Fiche", "Trouver un candidat", "Création d'email"])
@@ -116,6 +135,11 @@ with onglet1:
                     st.session_state['fiche_selectionnee'] = fiche
                     st.session_state['afficher_liste_candidats'] = False  # Réinitialiser
 
+                    # Génération de l'email à partir de la fiche sélectionnée
+                    ville = extraire_ville(fiche['contenu'])
+                    email = generer_email(fiche['titre'], ville)
+                    st.session_state['email_genere'] = email
+
 # --- Onglet 2 : Trouver un candidat ---
 with onglet2:
     st.title("Trouver un candidat")
@@ -128,7 +152,6 @@ with onglet2:
         if st.button("Liste de candidats"):
             st.session_state['afficher_liste_candidats'] = True
 
-        # Section dynamique après clic
         if st.session_state.get('afficher_liste_candidats'):
             st.markdown(f"### 👥 Liste des candidats pour {fiche['titre']}")
             st.info("Ici s'affichera la liste des candidats sélectionnés...")
@@ -138,4 +161,8 @@ with onglet2:
 # --- Onglet 3 : Création d'email ---
 with onglet3:
     st.title("Création d'email")
-    st.info("Interface de génération d'email à venir...")
+    email = st.session_state.get('email_genere', "")
+    if email:
+        st.text_area("✉️ Email généré automatiquement :", email, height=220)
+    else:
+        st.info("Aucun email généré. Cliquez sur 'Trouver le candidat idéal' pour en créer un.")
