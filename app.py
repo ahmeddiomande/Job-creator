@@ -44,8 +44,9 @@ Je pense que cet échange pourrait être enrichissant des deux côtés. Seriez-v
 
 Au plaisir d’échanger avec vous !"""
 
+# --- Chargement des données sauvegardées ---
 if 'fiches' not in st.session_state:
-    st.session_state['fiches'] = []
+    st.session_state['fiches'] = list(collection_fiches.find({}, {"_id": 0}))
 if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
 if 'afficher_liste_candidats' not in st.session_state:
