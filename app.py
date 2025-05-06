@@ -28,6 +28,8 @@ if 'fiches' not in st.session_state:
     st.session_state['fiches'] = []
 if 'fiche_selectionnee' not in st.session_state:
     st.session_state['fiche_selectionnee'] = None
+if 'afficher_liste_candidats' not in st.session_state:
+    st.session_state['afficher_liste_candidats'] = False
 
 # --- Interface avec onglets ---
 onglet1, onglet2, onglet3 = st.tabs(["Générateur de Fiche", "Trouver un candidat", "Création d'email"])
@@ -112,6 +114,7 @@ with onglet1:
                 submit = st.form_submit_button("Trouver le candidat idéal")
                 if submit:
                     st.session_state['fiche_selectionnee'] = fiche
+                    st.session_state['afficher_liste_candidats'] = False  # Réinitialiser
 
 # --- Onglet 2 : Trouver un candidat ---
 with onglet2:
@@ -121,8 +124,14 @@ with onglet2:
         st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
         st.markdown(fiche['contenu'], unsafe_allow_html=False)
 
-        # Bouton Liste de candidats (uniquement si fiche sélectionnée)
-        st.button("Liste de candidats")
+        # Bouton "Liste de candidats"
+        if st.button("Liste de candidats"):
+            st.session_state['afficher_liste_candidats'] = True
+
+        # Section dynamique après clic
+        if st.session_state.get('afficher_liste_candidats'):
+            st.markdown(f"### 👥 Liste des candidats pour {fiche['titre']}")
+            st.info("Ici s'affichera la liste des candidats sélectionnés...")
     else:
         st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
 
