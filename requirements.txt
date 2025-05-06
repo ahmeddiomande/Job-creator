@@ -7,4 +7,5 @@ google-auth
 openai==0.28.0
 requests
 python-dotenv
+pymongo[srv]==3.12
 
