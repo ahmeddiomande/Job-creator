@@ -44,6 +44,30 @@ Je pense que cet échange pourrait être enrichissant des deux côtés. Seriez-v
 
 Au plaisir d’échanger avec vous !"""
 
+def generer_requete_linkedin(fiche):
+    prompt = f"""
+Tu es un expert en sourcing RH. Génère une requête booléenne LinkedIn pour trouver des candidats correspondant à cette fiche de poste.
+Structure la requête ainsi :
+- 1 bloc OR avec le titre du poste + 2 synonymes
+- 1 bloc OR pour un domaine métier ou secteur
+- 1 bloc OR pour des méthodes de travail
+- 1 bloc OR pour des outils logiciels ou technos
+
+Voici la fiche :
+"""
+    prompt += fiche['contenu'][:2000]  # limite au contenu pertinent
+    prompt += "\nRetourne uniquement la requête, sans commentaire."
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "Tu es un assistant pour le recrutement"},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=400
+    )
+    return response['choices'][0]['message']['content'].strip()
+
 # --- Chargement des données sauvegardées ---
 if 'fiches' not in st.session_state:
     st.session_state['fiches'] = list(collection_fiches.find({}, {"_id": 0}))
@@ -53,6 +77,8 @@ if 'afficher_liste_candidats' not in st.session_state:
     st.session_state['afficher_liste_candidats'] = False
 if 'email_genere' not in st.session_state:
     st.session_state['email_genere'] = ""
+if 'requete_linkedin' not in st.session_state:
+    st.session_state['requete_linkedin'] = ""
 
 onglet1, onglet2, onglet3 = st.tabs(["Générateur de Fiche", "Trouver un candidat", "Création d'email"])
 
@@ -146,6 +172,9 @@ with onglet1:
                     st.session_state['email_genere'] = email
                     collection_emails.insert_one({"poste": fiche['titre'], "ville": ville, "email": email})
 
+                    requete = generer_requete_linkedin(fiche)
+                    st.session_state['requete_linkedin'] = requete
+
 with onglet2:
     st.title("Trouver un candidat")
     fiche = st.session_state.get('fiche_selectionnee')
@@ -159,6 +188,12 @@ with onglet2:
         if st.session_state.get('afficher_liste_candidats'):
             st.markdown(f"### 👥 Liste des candidats pour {fiche['titre']}")
             st.info("Ici s'affichera la liste des candidats sélectionnés...")
+
+        requete = st.session_state.get('requete_linkedin', "")
+        if requete:
+            st.markdown("---")
+            st.markdown("#### 🔍 Requête LinkedIn générée :")
+            st.code(requete)
     else:
         st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
 
