@@ -48,16 +48,16 @@ def generer_requete_linkedin(fiche):
     prompt = f"""
 Tu es un expert en sourcing RH. Génère une requête booléenne LinkedIn pour trouver des candidats correspondant à cette fiche de poste.
 Structure la requête ainsi :
-- 1 bloc OR avec le titre du poste + 2 synonymes
-- 1 bloc OR pour un domaine métier ou secteur
-- 1 bloc OR pour des méthodes de travail
-- 1 bloc OR pour des outils logiciels ou technos
+("Synonyme1" OR "Synonyme2" OR "Synonyme3")
+AND ("Domaine1" OR "Domaine2" OR "Domaine3")
+AND ("Méthode1" OR "Méthode2" OR "Méthode3")
+AND ("Outil1" OR "Outil2" OR "Outil3")
 
 Voici la fiche :
-"""
-    prompt += fiche['contenu'][:2000]  # limite au contenu pertinent
-    prompt += "\nRetourne uniquement la requête, sans commentaire."
+{fiche['contenu'][:2000]}
 
+Retourne uniquement la requête booléenne sans explication.
+"""
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -205,10 +205,10 @@ with onglet3:
 
     if st.button("📥 Voir l'historique des emails"):
         emails = list(collection_emails.find().sort("_id", -1))
-        for mail in emails:
+        for i, mail in enumerate(emails):
             st.markdown(f"**Poste :** {mail['poste']}  ")
             st.markdown(f"**Ville :** {mail['ville']}  ")
-            st.text_area("Email envoyé :", mail['email'], height=200)
+            st.text_area("Email envoyé :", mail['email'], height=200, key=f"email_{i}")
             st.markdown("---")
     else:
         st.info("Cliquez sur le bouton ci-dessus pour afficher les emails enregistrés.")
