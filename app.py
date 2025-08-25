@@ -1,214 +1,326 @@
 import openai
 import streamlit as st
 import json
-from pymongo import MongoClient
+import os
+import csv
+from datetime import datetime
+import re
+import unicodedata
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# --- Configuration des API ---
+# ==============================
+# Config & Secrets
+# ==============================
 openai.api_key = st.secrets["openai"]["api_key"]
-
-# Connexion MongoDB Atlas
-mongo_uri = st.secrets["mongodb"]["uri"]
-client = MongoClient(mongo_uri)
-db = client["Job_creator"]
-collection_fiches = db["fiches"]
-collection_emails = db["emails"]
+google_api_key = st.secrets["google"]["google_api_key"]
 
 # Google Sheets
-google_api_key = st.secrets["google"]["google_api_key"]
-google_credentials_dict = json.loads(google_api_key)
-credentials = service_account.Credentials.from_service_account_info(google_credentials_dict)
+SPREADSHEET_ID = '1wl_OvLv7c8iN8Z40Xutu7CyrN9rTIQeKgpkDJFtyKIU'  # Remplace par ton propre ID
+RANGE_NAME = 'Besoins ASI!A1:Z1000'  # Plage de données dans Google Sheets
 
-SPREADSHEET_ID = '1wl_OvLv7c8iN8Z40Xutu7CyrN9rTIQeKgpkDJFtyKIU'
-RANGE_NAME = 'Besoins ASI!A1:Z1000'
+# Chemins de stockage local
+OUTPUT_DIR = "out_fiches"
+INDEX_CSV = "fiches_index.csv"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ==============================
+# Auth Google Sheets
+# ==============================
+credentials = service_account.Credentials.from_service_account_info(
+    json.loads(google_api_key)
+)
 service = build('sheets', 'v4', credentials=credentials)
 
-def recuperer_donnees_google_sheet():
+# ==============================
+# Utilitaires
+# ==============================
+def slugify(value: str) -> str:
+    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
+    value = re.sub(r'[^a-zA-Z0-9_-]+', '-', value).strip('-').lower()
+    return value or "fiche"
+
+def parse_date_maybe(s: str):
+    """Essaie de parser une date avec quelques formats usuels. Retourne datetime ou None."""
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(s.strip(), fmt)
+        except Exception:
+            continue
+    # heuristique : si ça ressemble à une date ISO partielle
+    try:
+        # tente YYYY-MM-DDTHH:MM:SSZ
+        return datetime.fromisoformat(s.replace('Z', '').strip())
+    except Exception:
+        return None
+
+def detect_date_column(headers):
+    """Trouve l'index d'une colonne date probable dans les en-têtes."""
+    if not headers:
+        return None
+    keys = ['date', 'timestamp', 'créé', 'ajout', 'creation', 'added', 'updated', 'maj', 'demarrage', 'start']
+    hdr_lower = [h.lower() for h in headers]
+    for i, h in enumerate(hdr_lower):
+        if any(k in h for k in keys):
+            return i
+    return None
+
+def read_google_sheet_values():
     sheet = service.spreadsheets()
     result = sheet.values().get(spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME).execute()
-    return result.get('values', [])
+    values = result.get('values', [])
+    return values
 
-def extraire_ville(fiche_contenu):
-    for ligne in fiche_contenu.split('\n'):
-        if "localisation" in ligne.lower():
-            return ligne.split(":")[-1].strip()
-    return "votre région"
+def recuperer_donnees_google_sheet_sorted_recent_first():
+    """Récupère la sheet et renvoie (headers, rows triées du plus récent au moins récent)."""
+    values = read_google_sheet_values()
+    if not values:
+        return [], []
+    headers = values[0]
+    rows = values[1:]
 
-def generer_email(nom_poste, ville):
-    return f"""Bonjour,
+    # Détecte une colonne date et trie desc
+    date_idx = detect_date_column(headers)
+    if date_idx is not None:
+        def row_key(r):
+            d = r[date_idx] if len(r) > date_idx else ""
+            dt = parse_date_maybe(d)
+            # Pour les lignes sans date parseable, on renvoie datetime.min pour qu'elles soient en bas
+            return dt or datetime.min
+        rows.sort(key=row_key, reverse=True)
+    else:
+        # Fallback : on suppose que les lignes récentes sont en bas -> on inverse pour avoir récent -> ancien
+        rows = list(reversed(rows))
+    return headers, rows
 
-En découvrant votre profil, j’ai tout de suite vu une belle opportunité pour le poste de « {nom_poste} » basé à « {ville} ». Votre expérience et votre expertise dans ce domaine m’intéressent particulièrement, et je serais ravi d’échanger avec vous à ce sujet.
+def save_fiche(content: str, meta: dict):
+    """Enregistre la fiche en .md et met à jour l'index CSV."""
+    now = datetime.now()
+    ts = now.strftime("%Y%m%d_%H%M%S")
+    title = meta.get("titre_poste") or "fiche"
+    fname = f"{ts}_{slugify(title)}.md"
+    fpath = os.path.join(OUTPUT_DIR, fname)
+    with open(fpath, "w", encoding="utf-8") as f:
+        f.write(content)
 
-Je pense que cet échange pourrait être enrichissant des deux côtés. Seriez-vous disponible pour en discuter prochainement ?
+    # maj index
+    fieldnames = ["filename", "filepath", "titre_poste", "client", "localisation", "statut_mission",
+                  "duree_mission", "salaire", "teletravail", "date_demarrage", "competences", "projet",
+                  "generated_at"]
+    file_exists = os.path.exists(INDEX_CSV)
+    with open(INDEX_CSV, "a", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        row = {
+            "filename": fname,
+            "filepath": fpath,
+            "titre_poste": meta.get("titre_poste", ""),
+            "client": meta.get("client", ""),
+            "localisation": meta.get("localisation", ""),
+            "statut_mission": meta.get("statut_mission", ""),
+            "duree_mission": meta.get("duree_mission", ""),
+            "salaire": meta.get("salaire", ""),
+            "teletravail": meta.get("teletravail", ""),
+            "date_demarrage": meta.get("date_demarrage", ""),
+            "competences": meta.get("competences", ""),
+            "projet": meta.get("projet", ""),
+            "generated_at": now.isoformat(timespec="seconds"),
+        }
+        writer.writerow(row)
+    return fpath, fname
 
-Au plaisir d’échanger avec vous !"""
+def load_index_rows():
+    if not os.path.exists(INDEX_CSV):
+        return []
+    rows = []
+    with open(INDEX_CSV, "r", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        for r in reader:
+            rows.append(r)
+    # tri par défaut: plus récent -> moins récent
+    rows.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
+    return rows
 
-def generer_requete_linkedin(fiche):
-    prompt = f"""
-Tu es un expert en sourcing RH. Génère une requête booléenne LinkedIn pour trouver des candidats correspondant à cette fiche de poste.
-Structure la requête ainsi :
-("Synonyme1" OR "Synonyme2" OR "Synonyme3")
-AND ("Domaine1" OR "Domaine2" OR "Domaine3")
-AND ("Méthode1" OR "Méthode2" OR "Méthode3")
-AND ("Outil1" OR "Outil2" OR "Outil3")
-
-Voici la fiche :
-{fiche['contenu'][:2000]}
-
-Retourne uniquement la requête booléenne sans explication.
-"""
+def openai_generate_fiche(prompt_text: str):
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-3.5-turbo",  # Ou gpt-4 si dispos
         messages=[
-            {"role": "system", "content": "Tu es un assistant pour le recrutement"},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
+            {"role": "user", "content": prompt_text}
         ],
-        max_tokens=400
+        max_tokens=500
     )
     return response['choices'][0]['message']['content'].strip()
 
-# --- Chargement des données sauvegardées ---
-if 'fiches' not in st.session_state:
-    st.session_state['fiches'] = list(collection_fiches.find({}, {"_id": 0}))
-if 'fiche_selectionnee' not in st.session_state:
-    st.session_state['fiche_selectionnee'] = None
-if 'afficher_liste_candidats' not in st.session_state:
-    st.session_state['afficher_liste_candidats'] = False
-if 'email_genere' not in st.session_state:
-    st.session_state['email_genere'] = ""
-if 'requete_linkedin' not in st.session_state:
-    st.session_state['requete_linkedin'] = ""
+def build_prompt_from_row(row):
+    # Sécurise les accès aux colonnes comme dans ton code d'origine
+    titre_poste   = row[5]  if len(row) > 5  else 'Titre non spécifié'
+    duree_mission = row[13] if len(row) > 13 else '6 mois'
+    statut_mission= row[6]  if len(row) > 6  else ''
+    salaire       = row[14] if len(row) > 14 else ''
+    teletravail   = row[18] if len(row) > 18 else ''
+    date_demarrage= row[12] if len(row) > 12 else ''
+    competences   = row[17] if len(row) > 17 else ''
+    projet        = row[15] if len(row) > 15 else ''
+    client        = row[9]  if len(row) > 9  else ''
+    localisation  = row[10] if len(row) > 10 else ''
 
-onglet1, onglet2, onglet3 = st.tabs(["Générateur de Fiche", "Trouver un candidat", "Création d'email"])
+    prompt_fiche = "Description du poste :\n"
+    prompt_fiche += f"- Titre du poste recherché : {titre_poste}\n"
+    prompt_fiche += f"- Durée de la mission : {duree_mission}\n"
+    prompt_fiche += f"- Statut mission : {statut_mission}\n" if statut_mission else ""
+    prompt_fiche += f"- Projet : {projet}\n" if projet else ""
+    prompt_fiche += f"- Compétences : {competences}\n" if competences else ""
+    prompt_fiche += f"- Salaire : {salaire}\n" if salaire else ""
+    prompt_fiche += f"- Télétravail : {teletravail}\n" if teletravail else ""
+    prompt_fiche += f"- Date de démarrage : {date_demarrage}\n" if date_demarrage else ""
+    prompt_fiche += f"- Localisation : {localisation}\n" if localisation else ""
 
-with onglet1:
-    st.image("assets/logo.png", width=400)
-    st.title('🎯 IDEALMATCH JOB CREATOR')
+    meta = {
+        "titre_poste": titre_poste,
+        "duree_mission": duree_mission,
+        "statut_mission": statut_mission,
+        "salaire": salaire,
+        "teletravail": teletravail,
+        "date_demarrage": date_demarrage,
+        "competences": competences,
+        "projet": projet,
+        "client": client,
+        "localisation": localisation
+    }
+    return prompt_fiche, meta
 
+def generate_from_rpo_pipeline():
+    headers, rows = recuperer_donnees_google_sheet_sorted_recent_first()
+    if not rows:
+        st.warning("Aucune donnée trouvée dans la Google Sheet.")
+        return
+
+    with st.spinner("Génération des fiches à partir du RPO (ordre : récent → ancien) ..."):
+        for row in rows:
+            prompt_fiche, meta = build_prompt_from_row(row)
+            try:
+                content = openai_generate_fiche(prompt_fiche)
+                # Affichage immédiat
+                st.subheader(f'Fiche de Poste pour {meta["titre_poste"]}:')
+                st.write(content)
+                # Sauvegarde + index
+                path, name = save_fiche(content, meta)
+                st.success(f"Fiche enregistrée : {name}")
+            except Exception as e:
+                st.error(f"Erreur génération/sauvegarde pour {meta.get('titre_poste', 'N/A')} : {e}")
+
+# ==============================
+# UI
+# ==============================
+st.title('🎯 IDEALMATCH JOB CREATOR')
+
+tab_accueil, tab_prompt, tab_rpo, tab_fiches = st.tabs(
+    ["🏠 Accueil", "✍️ Génération par prompt", "📄 Générer avec RPO", "📚 Fiches générées"]
+)
+
+# -------- Onglet Accueil --------
+with tab_accueil:
     st.markdown("""
-    Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !  
+Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !  
+Cet outil vous permet de générer des fiches de poste personnalisées à l'aide de l'intelligence artificielle (ChatGPT).
 
-    ### Instructions :
-    - Personnalisez vos fiches de postes dans la zone de texte ci-dessous.
-    - Cliquez sur le bouton "Générer la Fiche de Poste" pour obtenir une fiche automatiquement générée.
-    - Ou cliquez sur "Générer à partir du fichier RPO" pour charger vos besoins ASI.
-    """)
+### Instructions :
+- Onglet **Génération par prompt** : écrivez un prompt libre.
+- Onglet **Générer avec RPO** : générez à partir de la Google Sheet.
+- Onglet **Fiches générées** : retrouvez toutes vos fiches (recherche + téléchargement).
 
-    user_prompt = st.text_area("Écrivez ici votre prompt pour générer une fiche de poste :", "Entrez ici le prompt pour ChatGPT...")
+📝 **Astuces** :
+- Soyez précis dans votre description pour obtenir les meilleurs résultats.
+- L'outil utilise la dernière version de GPT-3.5 pour vous fournir des résultats de qualité.
+""")
 
+    if st.button('Générer avec RPO (récent → ancien)'):
+        try:
+            generate_from_rpo_pipeline()
+        except Exception as e:
+            st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
+
+# -------- Onglet Génération par prompt --------
+with tab_prompt:
+    user_prompt = st.text_area(
+        "Écrivez ici votre prompt pour générer une fiche de poste :",
+        "Entrez ici le prompt pour ChatGPT..."
+    )
     if st.button('Générer la Fiche de Poste'):
         if user_prompt:
             try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    max_tokens=500
-                )
-                fiche = response['choices'][0]['message']['content'].strip()
-                fiche_doc = {"titre": "Fiche personnalisée", "contenu": fiche}
-                st.session_state['fiches'].append(fiche_doc)
-                collection_fiches.insert_one(fiche_doc)
+                content = openai_generate_fiche(user_prompt)
+                st.subheader('Fiche de Poste Générée:')
+                st.write(content)
+
+                # métadonnées minimales pour l'index si génération par prompt
+                meta = {
+                    "titre_poste": "Fiche (prompt libre)",
+                    "client": "",
+                    "localisation": "",
+                    "statut_mission": "",
+                    "duree_mission": "",
+                    "salaire": "",
+                    "teletravail": "",
+                    "date_demarrage": "",
+                    "competences": "",
+                    "projet": ""
+                }
+                path, name = save_fiche(content, meta)
+                st.success(f"Fiche enregistrée : {name}")
             except Exception as e:
-                st.error(f"Erreur lors de la génération : {e}")
+                st.error(f"Erreur lors de la génération de la fiche de poste : {e}")
         else:
-            st.warning("Veuillez entrer un prompt.")
+            st.warning("Veuillez entrer un prompt avant de soumettre.")
 
-    if st.button('Générer à partir du fichier RPO'):
+# -------- Onglet Générer avec RPO --------
+with tab_rpo:
+    st.markdown("Génération depuis la Google Sheet, **traitée du plus récent au moins récent**.")
+    if st.button('Générer à partir du fichier RPO (récent → ancien)'):
         try:
-            donnees_rpo = recuperer_donnees_google_sheet()
-            for ligne in donnees_rpo[1:]:
-                titre_poste = ligne[5] if len(ligne) > 5 else 'Titre non spécifié'
-                duree_mission = ligne[13] if len(ligne) > 13 else '6 mois'
-                statut_mission = ligne[6] if len(ligne) > 6 else ''
-                salaire = ligne[14] if len(ligne) > 14 else ''
-                teletravail = ligne[18] if len(ligne) > 18 else ''
-                date_demarrage = ligne[12] if len(ligne) > 12 else ''
-                competences = ligne[17] if len(ligne) > 17 else ''
-                projet = ligne[15] if len(ligne) > 15 else ''
-                localisation = ligne[10] if len(ligne) > 10 else ''
-
-                prompt_fiche = user_prompt.strip() + "\n\n"
-                prompt_fiche += f"Titre : {titre_poste}\n"
-                prompt_fiche += f"Durée : {duree_mission}\n"
-                prompt_fiche += f"Statut : {statut_mission}\n" if statut_mission else ""
-                prompt_fiche += f"Projet : {projet}\n" if projet else ""
-                prompt_fiche += f"Compétences : {competences}\n" if competences else ""
-                prompt_fiche += f"Salaire : {salaire}\n" if salaire else ""
-                prompt_fiche += f"Télétravail : {teletravail}\n" if teletravail else ""
-                prompt_fiche += f"Démarrage : {date_demarrage}\n" if date_demarrage else ""
-                prompt_fiche += f"Localisation : {localisation}\n" if localisation else ""
-
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
-                        {"role": "user", "content": prompt_fiche.strip()}
-                    ],
-                    max_tokens=500
-                )
-                fiche = response['choices'][0]['message']['content'].strip()
-                fiche_doc = {"titre": titre_poste, "contenu": fiche}
-                st.session_state['fiches'].append(fiche_doc)
-                collection_fiches.insert_one(fiche_doc)
+            generate_from_rpo_pipeline()
         except Exception as e:
-            st.error(f"Erreur lors du traitement des données : {e}")
+            st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
 
-    for i, fiche in enumerate(st.session_state['fiches']):
-        if isinstance(fiche, dict):
-            st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
-            st.markdown(fiche['contenu'], unsafe_allow_html=False)
-            with st.form(key=f"form_{i}"):
-                submit = st.form_submit_button("Trouver le candidat idéal")
-                if submit:
-                    st.session_state['fiche_selectionnee'] = fiche
-                    st.session_state['afficher_liste_candidats'] = False
+# -------- Onglet Fiches générées --------
+with tab_fiches:
+    st.subheader("Toutes les fiches générées")
+    query = st.text_input("🔎 Recherche (titre, client, localisation, compétences, projet, ...)", "")
 
-                    ville = extraire_ville(fiche['contenu'])
-                    email = generer_email(fiche['titre'], ville)
-                    st.session_state['email_genere'] = email
-                    collection_emails.insert_one({"poste": fiche['titre'], "ville": ville, "email": email})
+    rows = load_index_rows()
 
-                    requete = generer_requete_linkedin(fiche)
-                    st.session_state['requete_linkedin'] = requete
+    # Filtrage plein-texte simple
+    if query:
+        q = query.lower()
+        def match(r):
+            hay = " ".join([
+                r.get("titre_poste",""), r.get("client",""), r.get("localisation",""),
+                r.get("statut_mission",""), r.get("duree_mission",""), r.get("salaire",""),
+                r.get("teletravail",""), r.get("date_demarrage",""), r.get("competences",""),
+                r.get("projet",""), r.get("filename","")
+            ]).lower()
+            return q in hay
+        rows = list(filter(match, rows))
 
-with onglet2:
-    st.title("Trouver un candidat")
-    fiche = st.session_state.get('fiche_selectionnee')
-    if fiche:
-        st.markdown(f"<h4><strong>{fiche['titre']}</strong></h4>", unsafe_allow_html=True)
-        st.markdown(fiche['contenu'], unsafe_allow_html=False)
-
-        if st.button("Liste de candidats"):
-            st.session_state['afficher_liste_candidats'] = True
-
-        if st.session_state.get('afficher_liste_candidats'):
-            st.markdown(f"### 👥 Liste des candidats pour {fiche['titre']}")
-            st.info("Ici s'affichera la liste des candidats sélectionnés...")
-
-        requete = st.session_state.get('requete_linkedin', "")
-        if requete:
-            st.markdown("---")
-            st.markdown("#### 🔍 Requête LinkedIn générée :")
-            st.code(requete)
+    if not rows:
+        st.info("Aucune fiche enregistrée pour le moment.")
     else:
-        st.info("Cliquez sur un bouton 'Trouver le candidat idéal' pour charger une fiche.")
-
-with onglet3:
-    st.title("Création d'email")
-    email = st.session_state.get('email_genere', "")
-    if email:
-        st.text_area("✉️ Email généré automatiquement :", email, height=220)
-
-    if st.button("📥 Voir l'historique des emails"):
-        emails = list(collection_emails.find().sort("_id", -1))
-        for i, mail in enumerate(emails):
-            st.markdown(f"**Poste :** {mail['poste']}  ")
-            st.markdown(f"**Ville :** {mail['ville']}  ")
-            st.text_area("Email envoyé :", mail['email'], height=200, key=f"email_{i}")
-            st.markdown("---")
-    else:
-        st.info("Cliquez sur le bouton ci-dessus pour afficher les emails enregistrés.")
+        # Affichage en liste, tri déjà récent -> ancien
+        for r in rows:
+            with st.container(border=True):
+                st.markdown(f"**{r.get('titre_poste','(sans titre)')}** — {r.get('localisation','')}  \n"
+                            f"Client: {r.get('client','')}  \n"
+                            f"🕒 Générée le: {r.get('generated_at','')}")
+                file_path = r.get("filepath","")
+                if os.path.exists(file_path):
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content_preview = f.read()
+                    # petit extrait aperçu
+                    st.text_area("Aperçu", content_preview[:1000], height=150, key=f"preview_{r.get('filename','')}")
+                    st.download_button("Télécharger", data=content_preview, file_name=r.get("filename","fiche.md"))
+                else:
+                    st.error("Fichier introuvable sur le disque. Vérifiez le répertoire de sortie.")
