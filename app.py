@@ -135,47 +135,71 @@ def load_index_rows():
     return rows
 
 # ---------- Générateur au format STRICT (sans afficher les consignes) ----------
+# (Template EXACT fourni)
 TEMPLATE_OUTPUT = """Fiche de Poste Générée:
 Intitulé du poste : {TITRE}
+
+(Mettre cette section a la ligne 
 Description du poste :
+
+Reprise du titre "Titre du poste recherché" avec une phrase d’accroche
+
+Au sein d’une équipe de "Taille de l’equipe".
 {PARAGRAPHE}
 
 Responsabilités :
+
+"Projet sur lequel va travailler le ou la candidate :"  réécriture plus clean de toutes les donné de cette section
 - {RESP1}
 - {RESP2}
 - {RESP3}
 - {RESP4}
 - {RESP5}
 
+
+
 Compétences requises :
+"Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )" 
+
+Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" 
+
 - {COMP1}
 - {COMP2}
 - {COMP3}
 - {COMP4}
 - {COMP5}
 
-Qualifications requises :
-- {QUAL1}
-- {QUAL2}
+En resumé :
+- "Localisation"
+
+En fonction du « statut » :
+- Si freelance => "TJM ( sans la marge ASI )" 
+- SI CDI => « salaire »
+- Si les 2 , tu met les deux a la suite 
+
+
+« Durée de la mission »
+"Télétravail" 
+"Nombre d'année d'expérience" 
+
+
 - {QUAL3}
 """
 
 INSTRUCTIONS = """Tu es un assistant RH.
-Produis la fiche AU FORMAT EXACT ci-dessous. N'inclus RIEN d'autre : pas de préambule, pas d'explications, pas de section "Consignes".
-Remplis chaque ligne de puce par une phrase courte et claire. Si une information manque, complète de façon réaliste.
+Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) sans ajouter d’explications ni de section "Consignes".
+Remplis chaque puce avec une phrase claire. Réécris proprement les parties entre guillemets en t’appuyant sur les DONNÉES.
 
-Données disponibles :
+DONNÉES :
 {DONNEES}
 
-FORMAT À RENDRE (remplace les champs entre accolades par du texte, garde exactement les titres) :
+TEMPLATE (remplace les champs entre accolades, conserve exactement les titres/ponctuations) :
 {TEMPLATE}
 """
 
 def clean_fiche_output(text: str) -> str:
-    """Supprime toute section 'Consignes' qui aurait fuité et normalise les puces."""
-    # retire tout bloc commençant par 'Consignes'
+    """Nettoie toute fuite de 'Consignes' et normalise les puces."""
     text = re.sub(r"\n?Consignes\s*:.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
-    # remplace d'éventuels '• ' par '- '
     text = re.sub(r"^[ \t]*[•∙]\s?", "- ", text, flags=re.MULTILINE)
     return text.strip()
 
@@ -188,7 +212,7 @@ def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
             PARAGRAPHE="",
             RESP1="", RESP2="", RESP3="", RESP4="", RESP5="",
             COMP1="", COMP2="", COMP3="", COMP4="", COMP5="",
-            QUAL1="", QUAL2="", QUAL3=""
+            QUAL3=""
         )
     )
     response = openai.ChatCompletion.create(
@@ -197,76 +221,101 @@ def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
             {"role": "system", "content": "Tu génères des fiches de poste structurées au format imposé, sans ajouter de consignes."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=700,
+        max_tokens=900,
         temperature=0.3
     )
     raw = response['choices'][0]['message']['content'].strip()
     return clean_fiche_output(raw)
 
-# ---------- Helpers de mapping colonnes ----------
-def find_col_idx(headers, keywords):
-    """Retourne l'indice de la première colonne contenant un des keywords (case-insensitive), sinon None."""
-    if not headers:
-        return None
-    lower = [h.lower() for h in headers]
-    for i, h in enumerate(lower):
-        for k in keywords:
-            if k in h:
-                return i
-    return None
+# ---------- Mapping EXACT des colonnes RPO ----------
+# Noms exacts fournis :
+COL_DATE_DEMARRAGE   = "Date de démarrage"
+COL_TITRE            = "Titre du poste recherché"
+COL_EXPERIENCE       = "Nombre d'année d'expérience"
+COL_CLIENT           = "Nom du client"
+COL_LOCALISATION     = "Localisation"
+COL_STATUT           = "Statut"
+COL_DUREE            = "Durée de la mission"
+COL_TJM              = "TJM ( sans la marge ASI )"
+COL_SALAIRE          = "Salaire "
+COL_PROJET           = "Projet sur lequel va travailler le ou la candidate :"
+COL_COMPETENCES      = "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )"
+COL_TELETRAVAIL      = "Télétravail"
+COL_TAILLE_EQUIPE    = "Taille de l’equipe"
 
-def safe_get(row, idx, default=""):
-    return row[idx] if (idx is not None and len(row) > idx) else default
+def header_index_map(headers):
+    """Retourne un dict {nom_colonne_normalisée: index} basé sur les noms EXACTS."""
+    idx = {}
+    norm = { (h or "").strip().lower(): i for i, h in enumerate(headers) }
+    def get(colname):
+        return norm.get((colname or "").strip().lower(), None)
+    idx[COL_DATE_DEMARRAGE] = get(COL_DATE_DEMARRAGE)
+    idx[COL_TITRE]          = get(COL_TITRE)
+    idx[COL_EXPERIENCE]     = get(COL_EXPERIENCE)
+    idx[COL_CLIENT]         = get(COL_CLIENT)
+    idx[COL_LOCALISATION]   = get(COL_LOCALISATION)
+    idx[COL_STATUT]         = get(COL_STATUT)
+    idx[COL_DUREE]          = get(COL_DUREE)
+    idx[COL_TJM]            = get(COL_TJM)
+    idx[COL_SALAIRE]        = get(COL_SALAIRE)
+    idx[COL_PROJET]         = get(COL_PROJET)
+    idx[COL_COMPETENCES]    = get(COL_COMPETENCES)
+    idx[COL_TELETRAVAIL]    = get(COL_TELETRAVAIL)
+    idx[COL_TAILLE_EQUIPE]  = get(COL_TAILLE_EQUIPE)
+    return idx
+
+def safe_get_by_name(row, idx_map, name, default=""):
+    i = idx_map.get(name, None)
+    return (row[i].strip() if (i is not None and len(row) > i and isinstance(row[i], str)) else (row[i] if (i is not None and len(row) > i) else default)) or default
 
 def build_prompt_from_row(headers, row):
-    # Indices par mots-clés (robuste)
-    idx_titre = find_col_idx(headers, ["intitulé", "intitule", "titre", "poste", "job title"])
-    idx_duree = find_col_idx(headers, ["durée", "duree", "duration"])
-    idx_statut = find_col_idx(headers, ["statut", "contrat", "type de contrat"])
-    idx_tjm   = find_col_idx(headers, ["tjm"])  # <- rémunération journalière
-    idx_tele  = find_col_idx(headers, ["télétravail", "teletravail", "remote"])
-    idx_date  = find_col_idx(headers, ["démarrage", "demarrage", "start", "date de début", "date debut"])
-    idx_comp  = find_col_idx(headers, ["compétences", "competences", "skills"])
-    idx_proj  = find_col_idx(headers, ["projet", "mission", "context"])
-    idx_client= find_col_idx(headers, ["client", "société", "societe", "entreprise"])
-    idx_loca  = find_col_idx(headers, ["localisation", "lieu", "ville", "location"])
+    # Map exact
+    idx = header_index_map(headers)
 
     # Valeurs
-    titre_poste   = safe_get(row, idx_titre, default='Titre non spécifié')
-    duree_mission = safe_get(row, idx_duree, default='')  # ⚠️ ne pas utiliser TJM comme durée
-    statut_mission= safe_get(row, idx_statut, default='')
-    salaire       = safe_get(row, idx_tjm, default='')    # <-- TJM = rémunération/jour
-    teletravail   = safe_get(row, idx_tele, default='')
-    date_demarrage= safe_get(row, idx_date, default='')
-    competences   = safe_get(row, idx_comp, default='')
-    projet        = safe_get(row, idx_proj, default='')
-    client        = safe_get(row, idx_client, default='')
-    localisation  = safe_get(row, idx_loca, default='')
+    titre_poste    = safe_get_by_name(row, idx, COL_TITRE, default='Titre non spécifié')
+    duree_mission  = safe_get_by_name(row, idx, COL_DUREE, default='')
+    statut_mission = safe_get_by_name(row, idx, COL_STATUT, default='')
+    tjm            = safe_get_by_name(row, idx, COL_TJM, default='')      # rémunération/jour
+    salaire_cdi    = safe_get_by_name(row, idx, COL_SALAIRE, default='')  # salaire si CDI
+    teletravail    = safe_get_by_name(row, idx, COL_TELETRAVAIL, default='')
+    date_demarrage = safe_get_by_name(row, idx, COL_DATE_DEMARRAGE, default='')
+    competences    = safe_get_by_name(row, idx, COL_COMPETENCES, default='')
+    projet         = safe_get_by_name(row, idx, COL_PROJET, default='')
+    client         = safe_get_by_name(row, idx, COL_CLIENT, default='')
+    localisation   = safe_get_by_name(row, idx, COL_LOCALISATION, default='')
+    experience     = safe_get_by_name(row, idx, COL_EXPERIENCE, default='')
+    taille_equipe  = safe_get_by_name(row, idx, COL_TAILLE_EQUIPE, default='')
 
     # Si titre non spécifié → on NE GÉNÈRE PAS
     titre_clean = (titre_poste or "").strip()
     if not titre_clean or titre_clean.lower() == "titre non spécifié":
         return None, None
 
-    # Données à donner au modèle (il produira le format strict)
-    prompt_fiche = (
-        f"Intitulé du poste : {titre_clean}\n"
-        + (f"Durée : {duree_mission}\n" if duree_mission else "")
-        + (f"Statut : {statut_mission}\n" if statut_mission else "")
-        + (f"TJM : {salaire}\n" if salaire else "")
-        + (f"Télétravail : {teletravail}\n" if teletravail else "")
-        + (f"Date de démarrage : {date_demarrage}\n" if date_demarrage else "")
-        + (f"Localisation : {localisation}\n" if localisation else "")
-        + (f"Compétences : {competences}\n" if competences else "")
-        + (f"Projet : {projet}\n" if projet else "")
-        + (f"Client : {client}\n" if client else "")
-    ).strip()
+    # Données passées au modèle : le template se charge de la mise en forme finale
+    donnees = []
+    donnees.append(f'Titre du poste recherché : {titre_clean}')
+    if taille_equipe:  donnees.append(f'Taille de l’equipe : {taille_equipe}')
+    if projet:         donnees.append(f'{COL_PROJET} {projet}')
+    if competences:    donnees.append(f'{COL_COMPETENCES} {competences}')
+    if localisation:   donnees.append(f'Localisation : {localisation}')
+    if statut_mission: donnees.append(f'Statut : {statut_mission}')
+    if tjm:            donnees.append(f'{COL_TJM} {tjm}')
+    if salaire_cdi:    donnees.append(f'{COL_SALAIRE}{salaire_cdi}')
+    if duree_mission:  donnees.append(f'Durée de la mission : {duree_mission}')
+    if teletravail:    donnees.append(f'Télétravail : {teletravail}')
+    if experience:     donnees.append(f"Nombre d'année d'expérience : {experience}")
+    if date_demarrage: donnees.append(f'Date de démarrage : {date_demarrage}')
+    if client:         donnees.append(f'Nom du client : {client}')
 
+    prompt_fiche = "\n".join(donnees).strip()
+
+    # meta pour index + affichage
     meta = {
         "titre_poste": titre_clean,
         "duree_mission": duree_mission,
         "statut_mission": statut_mission,
-        "salaire": salaire,            # contient le TJM si présent
+        "salaire": (tjm or salaire_cdi),  # priorité au TJM si présent
         "teletravail": teletravail,
         "date_demarrage": date_demarrage,
         "competences": competences,
@@ -383,6 +432,9 @@ def generate_from_rpo_pipeline():
 
                 # Affichage immédiat
                 st.subheader(f'Fiche de Poste pour {meta["titre_poste"]}:')
+                # Affiche TJM/salaire si présent (caption discrète)
+                if meta.get("salaire"):
+                    st.caption(f"💶 Rémunération (TJM/Sal.) : {meta['salaire']}")
                 st.write(content)
 
                 # Bouton pour requête & email sous la fiche
@@ -511,9 +563,10 @@ with tab_fiches:
     else:
         for r in rows:
             with st.container(border=True):
-                st.markdown(f"**{r.get('titre_poste','(sans titre)')}** — {r.get('localisation','')}  \n"
-                            f"Client: {r.get('client','')}  \n"
-                            f"🕒 Générée le: {r.get('generated_at','')}")
+                header = f"**{r.get('titre_poste','(sans titre)')}** — {r.get('localisation','')}"
+                if r.get("salaire"):
+                    header += f"  \n💶 Rémunération (TJM/Sal.) : {r.get('salaire','')}"
+                st.markdown(header + f"  \nClient: {r.get('client','')}  \n🕒 Générée le: {r.get('generated_at','')}")
                 file_path = r.get("filepath","")
                 fiche_content = ""
                 if os.path.exists(file_path):
