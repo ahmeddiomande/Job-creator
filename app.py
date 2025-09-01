@@ -139,29 +139,18 @@ def load_index_rows():
 TEMPLATE_OUTPUT = """Fiche de Poste Générée:
 Intitulé du poste : {TITRE}
 
-(Mettre cette section a la ligne 
 Description du poste :
 
-Reprise du titre "Titre du poste recherché" avec une phrase d’accroche
-
-Au sein d’une équipe de "Taille de l’equipe".
 {PARAGRAPHE}
 
 Responsabilités :
-
-"Projet sur lequel va travailler le ou la candidate :"  réécriture plus clean de toutes les donné de cette section
 - {RESP1}
 - {RESP2}
 - {RESP3}
 - {RESP4}
 - {RESP5}
 
-
-
 Compétences requises :
-"Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )" 
-
-Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" 
 
 - {COMP1}
 - {COMP2}
@@ -170,18 +159,8 @@ Identifie des soft skills et met les ici en fonction de cette section "Projet su
 - {COMP5}
 
 En resumé :
-- "Localisation"
-
-TJM:  "TJM ( sans la marge ASI )" 
-Salire:  « salaire »
-
-
-
-« Durée de la mission »
-"Télétravail" 
-"Nombre d'année d'expérience" 
-
-
+- {QUAL1}
+- {QUAL2}
 - {QUAL3}
 """
 
@@ -191,10 +170,17 @@ Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) en amel
 
 
 dans description fais une Reprise du titre "Titre du poste recherché" avec une phrase d’accroche. & Au sein d’une équipe de "Taille de l’equipe" , bien ecris.
-dans responsabilité : reccris proprement tout le contenu sans rien oublier 
-dans competence requise : Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" 
+dans responsabilité : reccris proprement tout le contenu sans rien oublier en te basant sur la colonne : "Projet sur lequel va travailler le ou la candidate :"  n
+dans competence requise : Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" & "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )" & "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )"  
 
-dans en reusmé : En fonction du « statut » :
+dans en reusmé : En fonction du « statut » : fais des phrase d'accroche pour chaque thematique et reviens a la ligne a chaque fois 
+
+
+
+« Durée de la mission »
+"Télétravail" 
+"Nombre d'année d'expérience" 
+
 - Si freelance => "TJM ( sans la marge ASI )" 
 - SI CDI => « salaire »
 - Si les 2 , tu met les deux a la suite   et mentionne € apres la valeur du salire ou tjm
