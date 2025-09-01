@@ -134,10 +134,8 @@ def load_index_rows():
     rows.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
     return rows
 
-# ---------- Générateur au format STRICT ----------
-TEMPLATE_INSTRUCTIONS = """Tu es un assistant RH. TU DOIS produire STRICTEMENT ce format (sans rien ajouter d'autre) :
-
-Fiche de Poste Générée:
+# ---------- Générateur au format STRICT (sans afficher les consignes) ----------
+TEMPLATE_OUTPUT = """Fiche de Poste Générée:
 Intitulé du poste : {TITRE}
 Description du poste :
 {PARAGRAPHE}
@@ -160,30 +158,50 @@ Qualifications requises :
 - {QUAL1}
 - {QUAL2}
 - {QUAL3}
-n'affichge pas ça, cest pour t'indiquer les données que dois recuperer : Données disponibles :
-{DONNEES}
 """
+
+INSTRUCTIONS = """Tu es un assistant RH.
+Produis la fiche AU FORMAT EXACT ci-dessous. N'inclus RIEN d'autre : pas de préambule, pas d'explications, pas de section "Consignes".
+Remplis chaque ligne de puce par une phrase courte et claire. Si une information manque, complète de façon réaliste.
+
+Données disponibles :
+{DONNEES}
+
+FORMAT À RENDRE (remplace les champs entre accolades par du texte, garde exactement les titres) :
+{TEMPLATE}
+"""
+
+def clean_fiche_output(text: str) -> str:
+    """Supprime toute section 'Consignes' qui aurait fuité et normalise les puces."""
+    # retire tout bloc commençant par 'Consignes'
+    text = re.sub(r"\n?Consignes\s*:.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
+    # remplace d'éventuels '• ' par '- '
+    text = re.sub(r"^[ \t]*[•∙]\s?", "- ", text, flags=re.MULTILINE)
+    return text.strip()
 
 def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
     titre_placeholder = titre_force or "Intitulé non précisé"
-    prompt = TEMPLATE_INSTRUCTIONS.format(
-        TITRE=titre_placeholder,
-        PARAGRAPHE="",
-        RESP1="", RESP2="", RESP3="", RESP4="", RESP5="",
-        COMP1="", COMP2="", COMP3="", COMP4="", COMP5="",
-        QUAL1="", QUAL2="", QUAL3="",
-        DONNEES=donnees.strip()
+    prompt = INSTRUCTIONS.format(
+        DONNEES=donnees.strip(),
+        TEMPLATE=TEMPLATE_OUTPUT.format(
+            TITRE=titre_placeholder,
+            PARAGRAPHE="",
+            RESP1="", RESP2="", RESP3="", RESP4="", RESP5="",
+            COMP1="", COMP2="", COMP3="", COMP4="", COMP5="",
+            QUAL1="", QUAL2="", QUAL3=""
+        )
     )
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "Tu génères des fiches de poste structurées au format imposé."},
+            {"role": "system", "content": "Tu génères des fiches de poste structurées au format imposé, sans ajouter de consignes."},
             {"role": "user", "content": prompt}
         ],
         max_tokens=700,
         temperature=0.3
     )
-    return response['choices'][0]['message']['content'].strip()
+    raw = response['choices'][0]['message']['content'].strip()
+    return clean_fiche_output(raw)
 
 # ---------- Helpers de mapping colonnes ----------
 def find_col_idx(headers, keywords):
@@ -215,9 +233,9 @@ def build_prompt_from_row(headers, row):
 
     # Valeurs
     titre_poste   = safe_get(row, idx_titre, default='Titre non spécifié')
-    duree_mission = safe_get(row, idx_duree, default='')  # ⚠️ n'utilise plus jamais TJM comme durée
+    duree_mission = safe_get(row, idx_duree, default='')  # ⚠️ ne pas utiliser TJM comme durée
     statut_mission= safe_get(row, idx_statut, default='')
-    salaire       = safe_get(row, idx_tjm, default='')    # <-- TJM comme rémunération/jour
+    salaire       = safe_get(row, idx_tjm, default='')    # <-- TJM = rémunération/jour
     teletravail   = safe_get(row, idx_tele, default='')
     date_demarrage= safe_get(row, idx_date, default='')
     competences   = safe_get(row, idx_comp, default='')
@@ -225,10 +243,10 @@ def build_prompt_from_row(headers, row):
     client        = safe_get(row, idx_client, default='')
     localisation  = safe_get(row, idx_loca, default='')
 
-    # Si titre non spécifié → on NE GÉNÈRE PAS (exigence)
+    # Si titre non spécifié → on NE GÉNÈRE PAS
     titre_clean = (titre_poste or "").strip()
     if not titre_clean or titre_clean.lower() == "titre non spécifié":
-        return None, None  # signal d'abandon
+        return None, None
 
     # Données à donner au modèle (il produira le format strict)
     prompt_fiche = (
@@ -356,11 +374,11 @@ def generate_from_rpo_pipeline():
     with st.spinner("Génération des fiches à partir du RPO (ordre : récent → ancien) ..."):
         for row in rows:
             prompt_fiche, meta = build_prompt_from_row(headers, row)
-            # Si titre non spécifié → on skippe (exigence)
+            # Si titre non spécifié → on skippe
             if prompt_fiche is None:
                 continue
             try:
-                # Fiche au FORMAT STRICT demandé
+                # Fiche au FORMAT STRICT demandé (et nettoyage anti-"Consignes")
                 content = openai_generate_fiche_from_data(prompt_fiche, titre_force=meta["titre_poste"])
 
                 # Affichage immédiat
@@ -427,7 +445,7 @@ with tab_prompt:
     if st.button('Générer la Fiche de Poste'):
         if user_prompt:
             try:
-                # On génère AUSSI au format strict, même pour le prompt libre
+                # Génération au format strict + nettoyage
                 content = openai_generate_fiche_from_data(user_prompt, titre_force="Fiche (prompt libre)")
                 st.subheader('Fiche de Poste Générée:')
                 st.write(content)
