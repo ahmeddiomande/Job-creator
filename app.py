@@ -174,7 +174,7 @@ Règles de rédaction :
 - Compétences requises : combine les compétences techniques de « Compétences obligatoires… » et déduis des soft skills pertinents à partir du Projet. Écris d’abord un court paragraphe, puis 3 à 5 puces (mélange hard/soft).
 - En résumé : fais une phrase d’accroche pour chaque ligne, puis la valeur. Pour « Statut & Rémunération » : 
     * si freelance → inclure « TJM <montant> € »
-    * si CDI → inclure « Salaire <montant> € »
+    * si CDI → inclure « Salaire <montant> »
     * si les deux sont possibles → mettre les deux, séparés par « — ».
 - Ajoute le symbole « € » après toute valeur monétaire (TJM/Salaire) s’il est absent.
 - N’ajoute pas d’autres sections. Respecte exactement les titres.
@@ -193,11 +193,9 @@ def clean_fiche_output(text: str) -> str:
     return text.strip()
 
 def ensure_euro_suffix(text: str) -> str:
-    """Ajoute ' €' après les montants de TJM/Salaire/Rémunération s'ils n'en ont pas déjà."""
-    # Cas "Statut & Rémunération : TJM 600" / "Salaire 45k"
+    """Ajoute ' €' après les montants s'ils n'en ont pas déjà."""
     text = re.sub(r'(?im)\b(TJM|Salaire|Rémunération|Remuneration)\b([^:\n]*?:)?\s*([0-9][0-9\s.,kK]+)\b(?!\s*€)',
                   lambda m: f"{m.group(0)} €", text)
-    # Cas "TJM: 650" (déjà couvert) + variantes
     text = re.sub(r'(?im)\b(TJM|Salaire)\s*[:\-]?\s*([0-9][0-9\s.,kK]+)\b(?!\s*€)',
                   lambda m: f"{m.group(0)} €", text)
     return text
@@ -234,7 +232,6 @@ def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
     return ensure_euro_suffix(cleaned)
 
 # ---------- Mapping EXACT des colonnes RPO ----------
-# Noms exacts fournis :
 COL_DATE_DEMARRAGE   = "Date de démarrage"
 COL_TITRE            = "Titre du poste recherché"
 COL_EXPERIENCE       = "Nombre d'année d'expérience"
@@ -253,7 +250,7 @@ def _norm(s: str) -> str:
     return (s or "").strip().lower().replace("’", "'").replace("  ", " ")
 
 def header_index_map(headers):
-    """Retourne un dict nom_cible->index avec quelques variantes tolérées (apostrophes/espaces)."""
+    """Retourne un dict nom_cible->index avec variantes tolérées."""
     norm = { _norm(h): i for i, h in enumerate(headers) }
 
     def get_any(names):
@@ -289,7 +286,6 @@ def safe_get_by_name(row, idx_map, name, default=""):
     return val if val is not None else default
 
 def build_prompt_from_row(headers, row):
-    # Map exact + variantes
     idx = header_index_map(headers)
 
     # Valeurs
@@ -312,7 +308,7 @@ def build_prompt_from_row(headers, row):
     if not titre_clean or titre_clean.lower() == "titre non spécifié":
         return None, None
 
-    # Données passées au modèle : le template se charge de la mise en forme finale
+    # Données passées au modèle
     donnees_lines = []
     donnees_lines.append(f'Titre du poste recherché : {titre_clean}')
     if taille_equipe:  donnees_lines.append(f'Taille de l’équipe : {taille_equipe}')
@@ -330,7 +326,6 @@ def build_prompt_from_row(headers, row):
 
     prompt_fiche = "\n".join(donnees_lines).strip()
 
-    # meta pour index + affichage
     meta = {
         "titre_poste": titre_clean,
         "duree_mission": duree_mission,
@@ -432,44 +427,66 @@ def generate_and_store_requete_email(contenu_fiche: str, meta: dict):
     return requete, email, ville, titre
 
 # ==============================
+# Rendu UI pour une fiche (utilisé à l'accueil pour garder l'état)
+# ==============================
+def render_fiche_block(content: str, meta: dict, key_prefix: str):
+    with st.container(border=True):
+        st.subheader(f'Fiche de Poste pour {meta.get("titre_poste","(sans titre)")} :')
+        if meta.get("salaire"):
+            st.caption(f"💶 Rémunération (TJM/Sal.) : {meta['salaire']}")
+        st.write(content)
+
+        # État partagé pour afficher résultat à la suite du poste
+        if "req_email_results" not in st.session_state:
+            st.session_state["req_email_results"] = {}
+
+        if st.button("⚙️ Générer la requête LinkedIn + email", key=f"{key_prefix}_btn"):
+            req, mail, ville, titre = generate_and_store_requete_email(content, meta)
+            st.session_state["req_email_results"][key_prefix] = {"req": req, "mail": mail}
+
+        # Afficher (si déjà généré)
+        result = st.session_state["req_email_results"].get(key_prefix)
+        if result:
+            with st.expander("🔍 Requête LinkedIn"):
+                st.code(result["req"])
+            with st.expander("✉️ Email"):
+                st.text_area("Email", result["mail"], height=220, key=f"{key_prefix}_mail")
+
+# ==============================
 # Pipelines
 # ==============================
-def generate_from_rpo_pipeline():
+def generate_from_rpo_pipeline(return_results: bool = False):
+    """Si return_results=True, renvoie une liste de {'content','meta'} au lieu d'afficher directement."""
     headers, rows = recuperer_donnees_google_sheet_sorted_recent_first()
     if not rows:
-        st.warning("Aucune donnée trouvée dans la Google Sheet.")
-        return
+        if not return_results:
+            st.warning("Aucune donnée trouvée dans la Google Sheet.")
+        return [] if return_results else None
+
+    results = []
 
     with st.spinner("Génération des fiches à partir du RPO (ordre : récent → ancien) ..."):
         for row in rows:
             prompt_fiche, meta = build_prompt_from_row(headers, row)
-            # Si titre non spécifié → on skippe
             if prompt_fiche is None:
                 continue
             try:
-                # Fiche au FORMAT STRICT demandé (nettoyage + € auto)
                 content = openai_generate_fiche_from_data(prompt_fiche, titre_force=meta["titre_poste"])
-
-                # Affichage immédiat
-                st.subheader(f'Fiche de Poste pour {meta["titre_poste"]}:')
-                if meta.get("salaire"):
-                    st.caption(f"💶 Rémunération (TJM/Sal.) : {meta['salaire']}")
-                st.write(content)
-
-                # Bouton pour requête & email sous la fiche
-                if st.button("⚙️ Générer la requête LinkedIn + email", key=f"RPO_req_{meta['titre_poste']}_{slugify(content[:40])}"):
-                    req, mail, ville, titre = generate_and_store_requete_email(content, meta)
-                    st.success("Requête & email générés et enregistrés ✅")
-                    with st.expander("🔍 Requête LinkedIn"):
-                        st.code(req)
-                    with st.expander("✉️ Email"):
-                        st.text_area("Email", mail, height=220)
-
                 # Sauvegarde + index
                 path, name = save_fiche(content, meta)
-                st.success(f"Fiche enregistrée : {name}")
+
+                if return_results:
+                    results.append({"content": content, "meta": meta})
+                else:
+                    # Affichage direct (avec bouton inline)
+                    render_fiche_block(content, meta, key_prefix=f"rpo_{slugify(meta['titre_poste'])}_{slugify(meta.get('localisation',''))}")
+                    st.success(f"Fiche enregistrée : {name}")
             except Exception as e:
-                st.error(f"Erreur génération/sauvegarde pour {meta.get('titre_poste', 'N/A')} : {e}")
+                if not return_results:
+                    st.error(f"Erreur génération/sauvegarde pour {meta.get('titre_poste', 'N/A')} : {e}")
+
+    if return_results:
+        return results
 
 # ==============================
 # UI
@@ -487,36 +504,42 @@ Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 Cet outil vous permet de générer des fiches de poste personnalisées à l'aide de l'intelligence artificielle (ChatGPT).
 
 ### Instructions :
-- Onglet **Création d'une fiche intantanée** : écrivez un prompt libre.
+- Onglet **Création d'une fiche instantanée** : écrivez un prompt libre.
 - Onglet **Générer avec RPO** : générez à partir de la Google Sheet.
 - Onglet **Fiches générées** : retrouvez toutes vos fiches (recherche + téléchargement).
 - Onglet **Requêtes & Emails** : historique de vos requêtes LinkedIn et emails générés.
 
 📝 **Astuces** :
 - Soyez précis dans votre description pour obtenir les meilleurs résultats.
-- Bonne recherhe!
+- Bonne recherche !
 """)
 
-    if 'accueil_prompt_content' not in st.session_state:
-        st.session_state['accueil_prompt_content'] = None
-        st.session_state['accueil_meta'] = None
+    if "accueil_fiches" not in st.session_state:
+        st.session_state["accueil_fiches"] = []
 
     if st.button('Générer avec RPO (récent → ancien)'):
         try:
-            generate_from_rpo_pipeline()
+            # On génère et on stocke en session pour que les boutons internes fonctionnent après le rerun
+            st.session_state["accueil_fiches"] = generate_from_rpo_pipeline(return_results=True)
         except Exception as e:
             st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
+
+    # Toujours afficher les fiches stockées (si présentes), AVEC le bouton requis à la suite
+    if st.session_state["accueil_fiches"]:
+        st.write("—")
+        for i, item in enumerate(st.session_state["accueil_fiches"]):
+            key_prefix = f"accueil_{i}_{slugify(item['meta'].get('titre_poste',''))}"
+            render_fiche_block(item["content"], item["meta"], key_prefix)
 
 # -------- Onglet Génération par prompt --------
 with tab_prompt:
     user_prompt = st.text_area(
         "Écrivez ici votre prompt pour générer une fiche de poste :",
-        "redigez vos notes"
+        "rédigez vos notes"
     )
     if st.button('Générer la Fiche de Poste'):
         if user_prompt:
             try:
-                # Génération au format strict + nettoyage + € auto
                 content = openai_generate_fiche_from_data(user_prompt, titre_force="Fiche (prompt libre)")
                 st.subheader('Fiche de Poste Générée:')
                 st.write(content)
@@ -533,13 +556,8 @@ with tab_prompt:
                     "competences": "",
                     "projet": ""
                 }
-                if st.button("⚙️ Générer la requête LinkedIn + email", key="prompt_req_btn"):
-                    req, mail, ville, titre = generate_and_store_requete_email(content, meta)
-                    st.success("Requête & email générés et enregistrés ✅")
-                    with st.expander("🔍 Requête LinkedIn"):
-                        st.code(req)
-                    with st.expander("✉️ Email"):
-                        st.text_area("Email", mail, height=220)
+                # Bouton et affichage à la suite (même logique que fiches générées)
+                render_fiche_block(content, meta, key_prefix="prompt_generated")
 
                 path, name = save_fiche(content, meta)
                 st.success(f"Fiche enregistrée : {name}")
@@ -553,7 +571,8 @@ with tab_rpo:
     st.markdown("Génération depuis la Google Sheet, **traitée du plus récent au moins récent**.")
     if st.button('Générer à partir du fichier RPO (récent → ancien)'):
         try:
-            generate_from_rpo_pipeline()
+            # Ici on affiche directement, mais avec render_fiche_block (donc bouton fonctionne)
+            generate_from_rpo_pipeline(return_results=False)
         except Exception as e:
             st.error(f"Erreur lors de la récupération ou du traitement des données : {e}")
 
@@ -592,7 +611,7 @@ with tab_fiches:
                     with open(file_path, "r", encoding="utf-8") as f:
                         fiche_content = f.read()
                     st.text_area("Aperçu", fiche_content[:1000], height=150, key=f"preview_{r.get('filename','')}")
-                    # Bouton "Créer la requête" sous chaque fiche
+                    # Bouton "Créer la requête" sous chaque fiche (logique existante)
                     if st.button("⚙️ Générer la requête LinkedIn + email", key=f"req_btn_{r.get('filename','')}"):
                         req, mail, ville, titre = generate_and_store_requete_email(fiche_content, r)
                         st.success("Requête & email générés et enregistrés ✅")
