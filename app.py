@@ -160,7 +160,8 @@ Qualifications requises :
 - {QUAL1}
 - {QUAL2}
 - {QUAL3}
-
+n'affichge pas ça, cest pour t'indiquer les données que dois recuperer : Données disponibles :
+{DONNEES}
 """
 
 def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
