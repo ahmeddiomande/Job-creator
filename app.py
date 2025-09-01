@@ -159,8 +159,6 @@ Compétences requises :
 - {COMP5}
 
 En resumé :
-- {QUAL1}
-- {QUAL2}
 - {QUAL3}
 """
 
