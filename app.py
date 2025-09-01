@@ -71,6 +71,7 @@ def read_google_sheet_values():
     return values
 
 def recuperer_donnees_google_sheet_sorted_recent_first():
+    """Retourne (headers, rows) triés du plus récent au moins récent (si colonne date détectée)."""
     values = read_google_sheet_values()
     if not values:
         return [], []
@@ -112,7 +113,7 @@ def save_fiche(content: str, meta: dict):
             "localisation": meta.get("localisation", ""),
             "statut_mission": meta.get("statut_mission", ""),
             "duree_mission": meta.get("duree_mission", ""),
-            "salaire": meta.get("salaire", ""),
+            "salaire": meta.get("salaire", ""),  # <- contiendra TJM si présent
             "teletravail": meta.get("teletravail", ""),
             "date_demarrage": meta.get("date_demarrage", ""),
             "competences": meta.get("competences", ""),
@@ -133,45 +134,127 @@ def load_index_rows():
     rows.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
     return rows
 
-def openai_generate_fiche(prompt_text: str):
+# ---------- Générateur au format STRICT ----------
+TEMPLATE_INSTRUCTIONS = """Tu es un assistant RH. TU DOIS produire STRICTEMENT ce format (sans rien ajouter d'autre) :
+
+Fiche de Poste Générée:
+Intitulé du poste : {TITRE}
+Description du poste :
+{PARAGRAPHE}
+
+Responsabilités :
+- {RESP1}
+- {RESP2}
+- {RESP3}
+- {RESP4}
+- {RESP5}
+
+Compétences requises :
+- {COMP1}
+- {COMP2}
+- {COMP3}
+- {COMP4}
+- {COMP5}
+
+Qualifications requises :
+- {QUAL1}
+- {QUAL2}
+- {QUAL3}
+
+Consignes :
+- Respecte exactement les titres des sections ci-dessus (même orthographe et ponctuation).
+- Utilise un ton professionnel, clair et concis.
+- Si certaines informations ne sont pas fournies, complète de façon réaliste et cohérente avec le métier.
+- N'ajoute aucune autre section ni note.
+Données disponibles :
+{DONNEES}
+"""
+
+def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
+    titre_placeholder = titre_force or "Intitulé non précisé"
+    prompt = TEMPLATE_INSTRUCTIONS.format(
+        TITRE=titre_placeholder,
+        PARAGRAPHE="",
+        RESP1="", RESP2="", RESP3="", RESP4="", RESP5="",
+        COMP1="", COMP2="", COMP3="", COMP4="", COMP5="",
+        QUAL1="", QUAL2="", QUAL3="",
+        DONNEES=donnees.strip()
+    )
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
-            {"role": "user", "content": prompt_text}
+            {"role": "system", "content": "Tu génères des fiches de poste structurées au format imposé."},
+            {"role": "user", "content": prompt}
         ],
-        max_tokens=500
+        max_tokens=700,
+        temperature=0.3
     )
     return response['choices'][0]['message']['content'].strip()
 
-def build_prompt_from_row(row):
-    titre_poste   = row[5]  if len(row) > 5  else 'Titre non spécifié'
-    duree_mission = row[13] if len(row) > 13 else '6 mois'
-    statut_mission= row[6]  if len(row) > 6  else ''
-    salaire       = row[14] if len(row) > 14 else ''
-    teletravail   = row[18] if len(row) > 18 else ''
-    date_demarrage= row[12] if len(row) > 12 else ''
-    competences   = row[17] if len(row) > 17 else ''
-    projet        = row[15] if len(row) > 15 else ''
-    client        = row[9]  if len(row) > 9  else ''
-    localisation  = row[10] if len(row) > 10 else ''
+# ---------- Helpers de mapping colonnes ----------
+def find_col_idx(headers, keywords):
+    """Retourne l'indice de la première colonne contenant un des keywords (case-insensitive), sinon None."""
+    if not headers:
+        return None
+    lower = [h.lower() for h in headers]
+    for i, h in enumerate(lower):
+        for k in keywords:
+            if k in h:
+                return i
+    return None
 
-    prompt_fiche = "Description du poste :\n"
-    prompt_fiche += f"- Titre du poste recherché : {titre_poste}\n"
-    prompt_fiche += f"- Durée de la mission : {duree_mission}\n"
-    prompt_fiche += f"- Statut mission : {statut_mission}\n" if statut_mission else ""
-    prompt_fiche += f"- Projet : {projet}\n" if projet else ""
-    prompt_fiche += f"- Compétences : {competences}\n" if competences else ""
-    prompt_fiche += f"- Salaire : {salaire}\n" if salaire else ""
-    prompt_fiche += f"- Télétravail : {teletravail}\n" if teletravail else ""
-    prompt_fiche += f"- Date de démarrage : {date_demarrage}\n" if date_demarrage else ""
-    prompt_fiche += f"- Localisation : {localisation}\n" if localisation else ""
+def safe_get(row, idx, default=""):
+    return row[idx] if (idx is not None and len(row) > idx) else default
+
+def build_prompt_from_row(headers, row):
+    # Indices par mots-clés (robuste)
+    idx_titre = find_col_idx(headers, ["intitulé", "intitule", "titre", "poste", "job title"])
+    idx_duree = find_col_idx(headers, ["durée", "duree", "duration"])
+    idx_statut = find_col_idx(headers, ["statut", "contrat", "type de contrat"])
+    idx_tjm   = find_col_idx(headers, ["tjm"])  # <- rémunération journalière
+    idx_tele  = find_col_idx(headers, ["télétravail", "teletravail", "remote"])
+    idx_date  = find_col_idx(headers, ["démarrage", "demarrage", "start", "date de début", "date debut"])
+    idx_comp  = find_col_idx(headers, ["compétences", "competences", "skills"])
+    idx_proj  = find_col_idx(headers, ["projet", "mission", "context"])
+    idx_client= find_col_idx(headers, ["client", "société", "societe", "entreprise"])
+    idx_loca  = find_col_idx(headers, ["localisation", "lieu", "ville", "location"])
+
+    # Valeurs
+    titre_poste   = safe_get(row, idx_titre, default='Titre non spécifié')
+    duree_mission = safe_get(row, idx_duree, default='')  # ⚠️ n'utilise plus jamais TJM comme durée
+    statut_mission= safe_get(row, idx_statut, default='')
+    salaire       = safe_get(row, idx_tjm, default='')    # <-- TJM comme rémunération/jour
+    teletravail   = safe_get(row, idx_tele, default='')
+    date_demarrage= safe_get(row, idx_date, default='')
+    competences   = safe_get(row, idx_comp, default='')
+    projet        = safe_get(row, idx_proj, default='')
+    client        = safe_get(row, idx_client, default='')
+    localisation  = safe_get(row, idx_loca, default='')
+
+    # Si titre non spécifié → on NE GÉNÈRE PAS (exigence)
+    titre_clean = (titre_poste or "").strip()
+    if not titre_clean or titre_clean.lower() == "titre non spécifié":
+        return None, None  # signal d'abandon
+
+    # Données à donner au modèle (il produira le format strict)
+    prompt_fiche = (
+        f"Intitulé du poste : {titre_clean}\n"
+        + (f"Durée : {duree_mission}\n" if duree_mission else "")
+        + (f"Statut : {statut_mission}\n" if statut_mission else "")
+        + (f"TJM : {salaire}\n" if salaire else "")
+        + (f"Télétravail : {teletravail}\n" if teletravail else "")
+        + (f"Date de démarrage : {date_demarrage}\n" if date_demarrage else "")
+        + (f"Localisation : {localisation}\n" if localisation else "")
+        + (f"Compétences : {competences}\n" if competences else "")
+        + (f"Projet : {projet}\n" if projet else "")
+        + (f"Client : {client}\n" if client else "")
+    ).strip()
 
     meta = {
-        "titre_poste": titre_poste,
+        "titre_poste": titre_clean,
         "duree_mission": duree_mission,
         "statut_mission": statut_mission,
-        "salaire": salaire,
+        "salaire": salaire,            # contient le TJM si présent
         "teletravail": teletravail,
         "date_demarrage": date_demarrage,
         "competences": competences,
@@ -185,13 +268,11 @@ def build_prompt_from_row(row):
 # Génération LinkedIn + Email
 # ==============================
 def extraire_ville_depuis_contenu(contenu: str):
-    # 1) cherche une ligne "Localisation: ..."
     for ligne in contenu.splitlines():
         if "localisation" in ligne.lower():
             v = ligne.split(":")[-1].strip()
             if v:
                 return v
-    # 2) sinon heuristique simple sur quelques villes communes (facultatif)
     m = re.search(r"\b(Paris|Lyon|Marseille|Toulouse|Bordeaux|Nantes|Lille|Strasbourg|Rennes|Nice)\b", contenu, flags=re.I)
     if m:
         return m.group(1)
@@ -280,9 +361,14 @@ def generate_from_rpo_pipeline():
 
     with st.spinner("Génération des fiches à partir du RPO (ordre : récent → ancien) ..."):
         for row in rows:
-            prompt_fiche, meta = build_prompt_from_row(row)
+            prompt_fiche, meta = build_prompt_from_row(headers, row)
+            # Si titre non spécifié → on skippe (exigence)
+            if prompt_fiche is None:
+                continue
             try:
-                content = openai_generate_fiche(prompt_fiche)
+                # Fiche au FORMAT STRICT demandé
+                content = openai_generate_fiche_from_data(prompt_fiche, titre_force=meta["titre_poste"])
+
                 # Affichage immédiat
                 st.subheader(f'Fiche de Poste pour {meta["titre_poste"]}:')
                 st.write(content)
@@ -318,14 +404,14 @@ Bienvenue dans l'outil **IDEALMATCH JOB CREATOR** !
 Cet outil vous permet de générer des fiches de poste personnalisées à l'aide de l'intelligence artificielle (ChatGPT).
 
 ### Instructions :
-- Onglet **Génération par prompt** : écrivez un prompt libre.
+- Onglet **Création d'une fiche intantanée** : écrivez un prompt libre.
 - Onglet **Générer avec RPO** : générez à partir de la Google Sheet.
 - Onglet **Fiches générées** : retrouvez toutes vos fiches (recherche + téléchargement).
 - Onglet **Requêtes & Emails** : historique de vos requêtes LinkedIn et emails générés.
 
 📝 **Astuces** :
 - Soyez précis dans votre description pour obtenir les meilleurs résultats.
-- L'outil utilise la dernière version de GPT-3.5 pour vous fournir des résultats de qualité.
+- Bonne recherhe!
 """)
 
     if 'accueil_prompt_content' not in st.session_state:
@@ -342,16 +428,16 @@ Cet outil vous permet de générer des fiches de poste personnalisées à l'aide
 with tab_prompt:
     user_prompt = st.text_area(
         "Écrivez ici votre prompt pour générer une fiche de poste :",
-        "Entrez ici le prompt pour ChatGPT..."
+        "redigez vos notes"
     )
     if st.button('Générer la Fiche de Poste'):
         if user_prompt:
             try:
-                content = openai_generate_fiche(user_prompt)
+                # On génère AUSSI au format strict, même pour le prompt libre
+                content = openai_generate_fiche_from_data(user_prompt, titre_force="Fiche (prompt libre)")
                 st.subheader('Fiche de Poste Générée:')
                 st.write(content)
 
-                # métadonnées minimales pour l'index si génération par prompt
                 meta = {
                     "titre_poste": "Fiche (prompt libre)",
                     "client": "",
@@ -364,7 +450,6 @@ with tab_prompt:
                     "competences": "",
                     "projet": ""
                 }
-                # Afficher bouton de génération de requête sous la fiche
                 if st.button("⚙️ Générer la requête LinkedIn + email", key="prompt_req_btn"):
                     req, mail, ville, titre = generate_and_store_requete_email(content, meta)
                     st.success("Requête & email générés et enregistrés ✅")
