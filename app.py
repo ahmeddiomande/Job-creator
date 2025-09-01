@@ -22,6 +22,7 @@ RANGE_NAME = 'Besoins ASI!A1:Z1000'  # Plage de données dans Google Sheets
 # Chemins de stockage local
 OUTPUT_DIR = "out_fiches"
 INDEX_CSV = "fiches_index.csv"
+REQUETE_EMAILS_CSV = "requete_emails.csv"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ==============================
@@ -41,7 +42,6 @@ def slugify(value: str) -> str:
     return value or "fiche"
 
 def parse_date_maybe(s: str):
-    """Essaie de parser une date avec quelques formats usuels. Retourne datetime ou None."""
     if not s:
         return None
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S"):
@@ -49,15 +49,12 @@ def parse_date_maybe(s: str):
             return datetime.strptime(s.strip(), fmt)
         except Exception:
             continue
-    # heuristique : si ça ressemble à une date ISO partielle
     try:
-        # tente YYYY-MM-DDTHH:MM:SSZ
         return datetime.fromisoformat(s.replace('Z', '').strip())
     except Exception:
         return None
 
 def detect_date_column(headers):
-    """Trouve l'index d'une colonne date probable dans les en-têtes."""
     if not headers:
         return None
     keys = ['date', 'timestamp', 'créé', 'ajout', 'creation', 'added', 'updated', 'maj', 'demarrage', 'start']
@@ -74,29 +71,23 @@ def read_google_sheet_values():
     return values
 
 def recuperer_donnees_google_sheet_sorted_recent_first():
-    """Récupère la sheet et renvoie (headers, rows triées du plus récent au moins récent)."""
     values = read_google_sheet_values()
     if not values:
         return [], []
     headers = values[0]
     rows = values[1:]
-
-    # Détecte une colonne date et trie desc
     date_idx = detect_date_column(headers)
     if date_idx is not None:
         def row_key(r):
             d = r[date_idx] if len(r) > date_idx else ""
             dt = parse_date_maybe(d)
-            # Pour les lignes sans date parseable, on renvoie datetime.min pour qu'elles soient en bas
             return dt or datetime.min
         rows.sort(key=row_key, reverse=True)
     else:
-        # Fallback : on suppose que les lignes récentes sont en bas -> on inverse pour avoir récent -> ancien
         rows = list(reversed(rows))
     return headers, rows
 
 def save_fiche(content: str, meta: dict):
-    """Enregistre la fiche en .md et met à jour l'index CSV."""
     now = datetime.now()
     ts = now.strftime("%Y%m%d_%H%M%S")
     title = meta.get("titre_poste") or "fiche"
@@ -105,7 +96,6 @@ def save_fiche(content: str, meta: dict):
     with open(fpath, "w", encoding="utf-8") as f:
         f.write(content)
 
-    # maj index
     fieldnames = ["filename", "filepath", "titre_poste", "client", "localisation", "statut_mission",
                   "duree_mission", "salaire", "teletravail", "date_demarrage", "competences", "projet",
                   "generated_at"]
@@ -140,13 +130,12 @@ def load_index_rows():
         reader = csv.DictReader(csvfile)
         for r in reader:
             rows.append(r)
-    # tri par défaut: plus récent -> moins récent
     rows.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
     return rows
 
 def openai_generate_fiche(prompt_text: str):
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",  # Ou gpt-4 si dispos
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "Vous êtes un assistant générateur de fiches de poste."},
             {"role": "user", "content": prompt_text}
@@ -156,7 +145,6 @@ def openai_generate_fiche(prompt_text: str):
     return response['choices'][0]['message']['content'].strip()
 
 def build_prompt_from_row(row):
-    # Sécurise les accès aux colonnes comme dans ton code d'origine
     titre_poste   = row[5]  if len(row) > 5  else 'Titre non spécifié'
     duree_mission = row[13] if len(row) > 13 else '6 mois'
     statut_mission= row[6]  if len(row) > 6  else ''
@@ -193,6 +181,97 @@ def build_prompt_from_row(row):
     }
     return prompt_fiche, meta
 
+# ==============================
+# Génération LinkedIn + Email
+# ==============================
+def extraire_ville_depuis_contenu(contenu: str):
+    # 1) cherche une ligne "Localisation: ..."
+    for ligne in contenu.splitlines():
+        if "localisation" in ligne.lower():
+            v = ligne.split(":")[-1].strip()
+            if v:
+                return v
+    # 2) sinon heuristique simple sur quelques villes communes (facultatif)
+    m = re.search(r"\b(Paris|Lyon|Marseille|Toulouse|Bordeaux|Nantes|Lille|Strasbourg|Rennes|Nice)\b", contenu, flags=re.I)
+    if m:
+        return m.group(1)
+    return "votre région"
+
+def extraire_ville(meta: dict, contenu: str):
+    ville = (meta or {}).get("localisation", "") or extraire_ville_depuis_contenu(contenu)
+    return ville
+
+def generer_email(nom_poste: str, ville: str):
+    return f"""Bonjour,
+
+En découvrant votre profil, j’ai tout de suite vu une belle opportunité pour le poste de « {nom_poste} » basé à « {ville} ». Votre expérience et votre expertise dans ce domaine m’intéressent particulièrement, et je serais ravi d’échanger avec vous à ce sujet.
+
+Je pense que cet échange pourrait être enrichissant des deux côtés. Seriez-vous disponible pour en discuter prochainement ?
+
+Au plaisir d’échanger avec vous !"""
+
+def generer_requete_linkedin(contenu_fiche: str):
+    prompt = f"""
+Tu es un expert en sourcing RH. Génère une requête booléenne LinkedIn pour trouver des candidats correspondant à cette fiche de poste.
+Structure la requête ainsi :
+("Synonyme1" OR "Synonyme2" OR "Synonyme3")
+AND ("Domaine1" OR "Domaine2" OR "Domaine3")
+AND ("Méthode1" OR "Méthode2" OR "Méthode3")
+AND ("Outil1" OR "Outil2" OR "Outil3")
+
+Voici la fiche :
+{contenu_fiche[:2000]}
+
+Retourne uniquement la requête booléenne sans explication.
+"""
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "system", "content": "Tu es un assistant pour le recrutement"},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=400
+    )
+    return response['choices'][0]['message']['content'].strip()
+
+def save_requete_email(titre_poste: str, ville: str, requete: str, email: str):
+    now = datetime.now().isoformat(timespec="seconds")
+    fieldnames = ["timestamp", "titre_poste", "ville", "requete", "email"]
+    file_exists = os.path.exists(REQUETE_EMAILS_CSV)
+    with open(REQUETE_EMAILS_CSV, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            w.writeheader()
+        w.writerow({
+            "timestamp": now,
+            "titre_poste": titre_poste or "",
+            "ville": ville or "",
+            "requete": requete or "",
+            "email": email or ""
+        })
+
+def load_requetes_emails():
+    if not os.path.exists(REQUETE_EMAILS_CSV):
+        return []
+    rows = []
+    with open(REQUETE_EMAILS_CSV, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            rows.append(r)
+    rows.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+    return rows
+
+def generate_and_store_requete_email(contenu_fiche: str, meta: dict):
+    titre = (meta or {}).get("titre_poste") or "Fiche (sans titre)"
+    ville = extraire_ville(meta, contenu_fiche)
+    email = generer_email(titre, ville)
+    requete = generer_requete_linkedin(contenu_fiche)
+    save_requete_email(titre, ville, requete, email)
+    return requete, email, ville, titre
+
+# ==============================
+# Pipelines
+# ==============================
 def generate_from_rpo_pipeline():
     headers, rows = recuperer_donnees_google_sheet_sorted_recent_first()
     if not rows:
@@ -207,6 +286,16 @@ def generate_from_rpo_pipeline():
                 # Affichage immédiat
                 st.subheader(f'Fiche de Poste pour {meta["titre_poste"]}:')
                 st.write(content)
+
+                # Bouton pour requête & email sous la fiche
+                if st.button("⚙️ Générer la requête LinkedIn + email", key=f"RPO_req_{meta['titre_poste']}_{slugify(content[:40])}"):
+                    req, mail, ville, titre = generate_and_store_requete_email(content, meta)
+                    st.success("Requête & email générés et enregistrés ✅")
+                    with st.expander("🔍 Requête LinkedIn"):
+                        st.code(req)
+                    with st.expander("✉️ Email"):
+                        st.text_area("Email", mail, height=220)
+
                 # Sauvegarde + index
                 path, name = save_fiche(content, meta)
                 st.success(f"Fiche enregistrée : {name}")
@@ -218,8 +307,8 @@ def generate_from_rpo_pipeline():
 # ==============================
 st.title('🎯 IDEALMATCH JOB CREATOR')
 
-tab_accueil, tab_prompt, tab_rpo, tab_fiches = st.tabs(
-    ["🏠 Accueil", "✍️ Génération par prompt", "📄 Générer avec RPO", "📚 Fiches générées"]
+tab_accueil, tab_prompt, tab_rpo, tab_fiches, tab_requetes = st.tabs(
+    ["🏠 Accueil", "✍️ Génération par prompt", "📄 Générer avec RPO", "📚 Fiches générées", "🔍 Requêtes & Emails"]
 )
 
 # -------- Onglet Accueil --------
@@ -232,11 +321,16 @@ Cet outil vous permet de générer des fiches de poste personnalisées à l'aide
 - Onglet **Génération par prompt** : écrivez un prompt libre.
 - Onglet **Générer avec RPO** : générez à partir de la Google Sheet.
 - Onglet **Fiches générées** : retrouvez toutes vos fiches (recherche + téléchargement).
+- Onglet **Requêtes & Emails** : historique de vos requêtes LinkedIn et emails générés.
 
 📝 **Astuces** :
 - Soyez précis dans votre description pour obtenir les meilleurs résultats.
 - L'outil utilise la dernière version de GPT-3.5 pour vous fournir des résultats de qualité.
 """)
+
+    if 'accueil_prompt_content' not in st.session_state:
+        st.session_state['accueil_prompt_content'] = None
+        st.session_state['accueil_meta'] = None
 
     if st.button('Générer avec RPO (récent → ancien)'):
         try:
@@ -270,6 +364,15 @@ with tab_prompt:
                     "competences": "",
                     "projet": ""
                 }
+                # Afficher bouton de génération de requête sous la fiche
+                if st.button("⚙️ Générer la requête LinkedIn + email", key="prompt_req_btn"):
+                    req, mail, ville, titre = generate_and_store_requete_email(content, meta)
+                    st.success("Requête & email générés et enregistrés ✅")
+                    with st.expander("🔍 Requête LinkedIn"):
+                        st.code(req)
+                    with st.expander("✉️ Email"):
+                        st.text_area("Email", mail, height=220)
+
                 path, name = save_fiche(content, meta)
                 st.success(f"Fiche enregistrée : {name}")
             except Exception as e:
@@ -309,18 +412,55 @@ with tab_fiches:
     if not rows:
         st.info("Aucune fiche enregistrée pour le moment.")
     else:
-        # Affichage en liste, tri déjà récent -> ancien
         for r in rows:
             with st.container(border=True):
                 st.markdown(f"**{r.get('titre_poste','(sans titre)')}** — {r.get('localisation','')}  \n"
                             f"Client: {r.get('client','')}  \n"
                             f"🕒 Générée le: {r.get('generated_at','')}")
                 file_path = r.get("filepath","")
+                fiche_content = ""
                 if os.path.exists(file_path):
                     with open(file_path, "r", encoding="utf-8") as f:
-                        content_preview = f.read()
-                    # petit extrait aperçu
-                    st.text_area("Aperçu", content_preview[:1000], height=150, key=f"preview_{r.get('filename','')}")
-                    st.download_button("Télécharger", data=content_preview, file_name=r.get("filename","fiche.md"))
+                        fiche_content = f.read()
+                    st.text_area("Aperçu", fiche_content[:1000], height=150, key=f"preview_{r.get('filename','')}")
+                    # Bouton "Créer la requête" sous chaque fiche
+                    if st.button("⚙️ Générer la requête LinkedIn + email", key=f"req_btn_{r.get('filename','')}"):
+                        req, mail, ville, titre = generate_and_store_requete_email(fiche_content, r)
+                        st.success("Requête & email générés et enregistrés ✅")
+                        with st.expander("🔍 Requête LinkedIn"):
+                            st.code(req)
+                        with st.expander("✉️ Email"):
+                            st.text_area("Email", mail, height=220, key=f"mail_{r.get('filename','')}")
+                    st.download_button("Télécharger", data=fiche_content, file_name=r.get("filename","fiche.md"))
                 else:
                     st.error("Fichier introuvable sur le disque. Vérifiez le répertoire de sortie.")
+
+# -------- Onglet Requêtes & Emails (5ᵉ onglet) --------
+with tab_requetes:
+    st.subheader("Historique — Requêtes LinkedIn & Emails")
+    requetes = load_requetes_emails()
+    filtre = st.text_input("🔎 Filtrer (poste / ville / contenu requête / email)", "")
+
+    if filtre:
+        f = filtre.lower()
+        def ok(r):
+            hay = " ".join([r.get("titre_poste",""), r.get("ville",""), r.get("requete",""), r.get("email","")]).lower()
+            return f in hay
+        requetes = list(filter(ok, requetes))
+
+    if not requetes:
+        st.info("Pas encore d'historique. Générez une requête depuis une fiche.")
+    else:
+        for i, r in enumerate(requetes):
+            with st.container(border=True):
+                st.markdown(f"**{r.get('titre_poste','(sans titre)')}** — {r.get('ville','')}  \n"
+                            f"🕒 {r.get('timestamp','')}")
+                with st.expander("🔍 Requête LinkedIn"):
+                    st.code(r.get("requete",""))
+                with st.expander("✉️ Email"):
+                    st.text_area("Email", r.get("email",""), height=220, key=f"hist_email_{i}")
+        # Export CSV
+        if os.path.exists(REQUETE_EMAILS_CSV):
+            with open(REQUETE_EMAILS_CSV, "r", encoding="utf-8") as f:
+                data = f.read()
+            st.download_button("📥 Exporter l'historique (CSV)", data=data, file_name="requete_emails.csv", mime="text/csv")
