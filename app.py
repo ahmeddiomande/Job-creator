@@ -134,16 +134,15 @@ def load_index_rows():
     rows.sort(key=lambda r: r.get("generated_at", ""), reverse=True)
     return rows
 
-# ---------- Générateur au format STRICT (sans afficher les consignes) ----------
-# (Template EXACT fourni)
+# ---------- Générateur au format STRICT & ROBUSTE ----------
 TEMPLATE_OUTPUT = """Fiche de Poste Générée:
 Intitulé du poste : {TITRE}
 
 Description du poste :
-
-{PARAGRAPHE}
+{DESCRIPTION_PARAGRAPHE}
 
 Responsabilités :
+{RESP_PARAGRAPHE}
 - {RESP1}
 - {RESP2}
 - {RESP3}
@@ -151,70 +150,75 @@ Responsabilités :
 - {RESP5}
 
 Compétences requises :
-
+{COMP_PARAGRAPHE}
 - {COMP1}
 - {COMP2}
 - {COMP3}
 - {COMP4}
 - {COMP5}
 
-En resumé :
-- {QUAL3}
+En résumé :
+- Localisation : {RESUME_LOCALISATION}
+- Statut & Rémunération : {RESUME_STATUT_REMU}
+- Durée de la mission : {RESUME_DUREE}
+- Télétravail : {RESUME_TELETRAVAIL}
+- Expérience : {RESUME_EXPERIENCE}
 """
 
 INSTRUCTIONS = """Tu es un assistant RH.
-Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) en ameliorant et en creaznt de"s phrase simple et lisible 
-
-
-
-dans description fais une Reprise du titre "Titre du poste recherché" avec une phrase d’accroche. & Au sein d’une équipe de "Taille de l’equipe" , bien ecris.
-dans responsabilité : reccris proprement tout le contenu sans rien oublier en te basant sur la colonne : "Projet sur lequel va travailler le ou la candidate :"  n
-dans competence requise : Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" & "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )" & "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )"  
-les information sont ecris en vrac dans le tableau, POUR CHAQUE ACOLADE reecris toute les données de la  cellule en faisant des phrases
-
-
-dans en reusmé : En fonction du « statut » : fais des phrase d'accroche pour chaque thematique et reviens a la ligne a chaque fois 
-
-
-
-« Durée de la mission »
-"Télétravail" 
-"Nombre d'année d'expérience" 
-
-- Si freelance => "TJM ( sans la marge ASI )" 
-- SI CDI => « salaire »
-- Si les 2 , tu met les deux a la suite   et mentionne € apres la valeur du salire ou tjm
-
-globelmeent ecris une belle fiche de poste bien lissble 
-
-
-
-Remplis chaque puce avec une phrase claire. Réécris proprement les parties entre guillemets en t’appuyant sur les DONNÉES.
+Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) sans ajouter d’explications ni de section "Consignes".
+Style : phrases simples, lisibles, ton professionnel.
+Règles de rédaction :
+- Description : commence par reprendre le titre du poste avec une phrase d’accroche claire. Ajoute ensuite : « Au sein d’une équipe de <Taille de l’équipe> » si disponible.
+- Responsabilités : réécris proprement TOUT le contenu de « Projet sur lequel va travailler le ou la candidate : » en un court paragraphe puis liste 3 à 5 responsabilités concrètes (puces).
+- Compétences requises : combine les compétences techniques de « Compétences obligatoires… » et déduis des soft skills pertinents à partir du Projet. Écris d’abord un court paragraphe, puis 3 à 5 puces (mélange hard/soft).
+- En résumé : fais une phrase d’accroche pour chaque ligne, puis la valeur. Pour « Statut & Rémunération » : 
+    * si freelance → inclure « TJM <montant> € »
+    * si CDI → inclure « Salaire <montant> € »
+    * si les deux sont possibles → mettre les deux, séparés par « — ».
+- Ajoute le symbole « € » après toute valeur monétaire (TJM/Salaire) s’il est absent.
+- N’ajoute pas d’autres sections. Respecte exactement les titres.
 
 DONNÉES :
 {DONNEES}
 
-TEMPLATE (remplace les champs entre accolades, conserve exactement les titres/ponctuations) :
+TEMPLATE (remplace les champs entre accolades ; garde exactement les titres/ponctuations) :
 {TEMPLATE}
 """
 
 def clean_fiche_output(text: str) -> str:
-    """Nettoie toute fuite de 'Consignes' et normalise les puces."""
+    """Nettoie toute fuite de 'Consignes' et normalise des puces."""
     text = re.sub(r"\n?Consignes\s*:.*$", "", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"^[ \t]*[•∙]\s?", "- ", text, flags=re.MULTILINE)
     return text.strip()
 
+def ensure_euro_suffix(text: str) -> str:
+    """Ajoute ' €' après les montants de TJM/Salaire/Rémunération s'ils n'en ont pas déjà."""
+    # Cas "Statut & Rémunération : TJM 600" / "Salaire 45k"
+    text = re.sub(r'(?im)\b(TJM|Salaire|Rémunération|Remuneration)\b([^:\n]*?:)?\s*([0-9][0-9\s.,kK]+)\b(?!\s*€)',
+                  lambda m: f"{m.group(0)} €", text)
+    # Cas "TJM: 650" (déjà couvert) + variantes
+    text = re.sub(r'(?im)\b(TJM|Salaire)\s*[:\-]?\s*([0-9][0-9\s.,kK]+)\b(?!\s*€)',
+                  lambda m: f"{m.group(0)} €", text)
+    return text
+
 def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
-    titre_placeholder = titre_force or "Intitulé non précisé"
+    template_vars = {
+        "TITRE": (titre_force or "Intitulé non précisé"),
+        "DESCRIPTION_PARAGRAPHE": "",
+        "RESP_PARAGRAPHE": "",
+        "RESP1": "", "RESP2": "", "RESP3": "", "RESP4": "", "RESP5": "",
+        "COMP_PARAGRAPHE": "",
+        "COMP1": "", "COMP2": "", "COMP3": "", "COMP4": "", "COMP5": "",
+        "RESUME_LOCALISATION": "",
+        "RESUME_STATUT_REMU": "",
+        "RESUME_DUREE": "",
+        "RESUME_TELETRAVAIL": "",
+        "RESUME_EXPERIENCE": "",
+    }
     prompt = INSTRUCTIONS.format(
         DONNEES=donnees.strip(),
-        TEMPLATE=TEMPLATE_OUTPUT.format(
-            TITRE=titre_placeholder,
-            PARAGRAPHE="",
-            RESP1="", RESP2="", RESP3="", RESP4="", RESP5="",
-            COMP1="", COMP2="", COMP3="", COMP4="", COMP5="",
-            QUAL3=""
-        )
+        TEMPLATE=TEMPLATE_OUTPUT.format(**template_vars)
     )
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -222,11 +226,12 @@ def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
             {"role": "system", "content": "Tu génères des fiches de poste structurées au format imposé, sans ajouter de consignes."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=900,
-        temperature=0.3
+        max_tokens=1100,
+        temperature=0.25
     )
     raw = response['choices'][0]['message']['content'].strip()
-    return clean_fiche_output(raw)
+    cleaned = clean_fiche_output(raw)
+    return ensure_euro_suffix(cleaned)
 
 # ---------- Mapping EXACT des colonnes RPO ----------
 # Noms exacts fournis :
@@ -244,33 +249,47 @@ COL_COMPETENCES      = "Compétences obligatoires ( Préciser technologies princ
 COL_TELETRAVAIL      = "Télétravail"
 COL_TAILLE_EQUIPE    = "Taille de l’equipe"
 
+def _norm(s: str) -> str:
+    return (s or "").strip().lower().replace("’", "'").replace("  ", " ")
+
 def header_index_map(headers):
-    """Retourne un dict {nom_colonne_normalisée: index} basé sur les noms EXACTS."""
+    """Retourne un dict nom_cible->index avec quelques variantes tolérées (apostrophes/espaces)."""
+    norm = { _norm(h): i for i, h in enumerate(headers) }
+
+    def get_any(names):
+        for n in names:
+            key = _norm(n)
+            if key in norm:
+                return norm[key]
+        return None
+
     idx = {}
-    norm = { (h or "").strip().lower(): i for i, h in enumerate(headers) }
-    def get(colname):
-        return norm.get((colname or "").strip().lower(), None)
-    idx[COL_DATE_DEMARRAGE] = get(COL_DATE_DEMARRAGE)
-    idx[COL_TITRE]          = get(COL_TITRE)
-    idx[COL_EXPERIENCE]     = get(COL_EXPERIENCE)
-    idx[COL_CLIENT]         = get(COL_CLIENT)
-    idx[COL_LOCALISATION]   = get(COL_LOCALISATION)
-    idx[COL_STATUT]         = get(COL_STATUT)
-    idx[COL_DUREE]          = get(COL_DUREE)
-    idx[COL_TJM]            = get(COL_TJM)
-    idx[COL_SALAIRE]        = get(COL_SALAIRE)
-    idx[COL_PROJET]         = get(COL_PROJET)
-    idx[COL_COMPETENCES]    = get(COL_COMPETENCES)
-    idx[COL_TELETRAVAIL]    = get(COL_TELETRAVAIL)
-    idx[COL_TAILLE_EQUIPE]  = get(COL_TAILLE_EQUIPE)
+    idx[COL_DATE_DEMARRAGE] = get_any([COL_DATE_DEMARRAGE, "Date de demarrage"])
+    idx[COL_TITRE]          = get_any([COL_TITRE, "Intitulé du poste", "Intitule du poste", "Titre"])
+    idx[COL_EXPERIENCE]     = get_any([COL_EXPERIENCE, "Annees d'experience", "Nombre d'annee d'experience"])
+    idx[COL_CLIENT]         = get_any([COL_CLIENT, "Client", "Entreprise"])
+    idx[COL_LOCALISATION]   = get_any([COL_LOCALISATION, "Ville", "Lieu", "Location"])
+    idx[COL_STATUT]         = get_any([COL_STATUT, "Status", "Type de contrat"])
+    idx[COL_DUREE]          = get_any([COL_DUREE, "Duree de la mission", "Durée"])
+    idx[COL_TJM]            = get_any([COL_TJM, "TJM", "TJM (sans la marge ASI)"])
+    idx[COL_SALAIRE]        = get_any([COL_SALAIRE, "Salaire", "Salaire brut", "Salaire net"])
+    idx[COL_PROJET]         = get_any([COL_PROJET, "Projet", "Mission", "Contexte"])
+    idx[COL_COMPETENCES]    = get_any([COL_COMPETENCES, "Compétences", "Competences", "Skills"])
+    idx[COL_TELETRAVAIL]    = get_any([COL_TELETRAVAIL, "Remote", "Télétravail possible"])
+    idx[COL_TAILLE_EQUIPE]  = get_any([COL_TAILLE_EQUIPE, "Taille de l'equipe", "Taille de l’équipe", "Taille equipe"])
     return idx
 
 def safe_get_by_name(row, idx_map, name, default=""):
     i = idx_map.get(name, None)
-    return (row[i].strip() if (i is not None and len(row) > i and isinstance(row[i], str)) else (row[i] if (i is not None and len(row) > i) else default)) or default
+    if i is None or len(row) <= i:
+        return default
+    val = row[i]
+    if isinstance(val, str):
+        return val.strip()
+    return val if val is not None else default
 
 def build_prompt_from_row(headers, row):
-    # Map exact
+    # Map exact + variantes
     idx = header_index_map(headers)
 
     # Valeurs
@@ -294,22 +313,22 @@ def build_prompt_from_row(headers, row):
         return None, None
 
     # Données passées au modèle : le template se charge de la mise en forme finale
-    donnees = []
-    donnees.append(f'Titre du poste recherché : {titre_clean}')
-    if taille_equipe:  donnees.append(f'Taille de l’equipe : {taille_equipe}')
-    if projet:         donnees.append(f'{COL_PROJET} {projet}')
-    if competences:    donnees.append(f'{COL_COMPETENCES} {competences}')
-    if localisation:   donnees.append(f'Localisation : {localisation}')
-    if statut_mission: donnees.append(f'Statut : {statut_mission}')
-    if tjm:            donnees.append(f'{COL_TJM} {tjm}')
-    if salaire_cdi:    donnees.append(f'{COL_SALAIRE}{salaire_cdi}')
-    if duree_mission:  donnees.append(f'Durée de la mission : {duree_mission}')
-    if teletravail:    donnees.append(f'Télétravail : {teletravail}')
-    if experience:     donnees.append(f"Nombre d'année d'expérience : {experience}")
-    if date_demarrage: donnees.append(f'Date de démarrage : {date_demarrage}')
-    if client:         donnees.append(f'Nom du client : {client}')
+    donnees_lines = []
+    donnees_lines.append(f'Titre du poste recherché : {titre_clean}')
+    if taille_equipe:  donnees_lines.append(f'Taille de l’équipe : {taille_equipe}')
+    if projet:         donnees_lines.append(f'{COL_PROJET} {projet}')
+    if competences:    donnees_lines.append(f'{COL_COMPETENCES} {competences}')
+    if localisation:   donnees_lines.append(f'Localisation : {localisation}')
+    if statut_mission: donnees_lines.append(f'Statut : {statut_mission}')
+    if tjm:            donnees_lines.append(f'{COL_TJM} {tjm}')
+    if salaire_cdi:    donnees_lines.append(f'{COL_SALAIRE}{salaire_cdi}')
+    if duree_mission:  donnees_lines.append(f'Durée de la mission : {duree_mission}')
+    if teletravail:    donnees_lines.append(f'Télétravail : {teletravail}')
+    if experience:     donnees_lines.append(f"Nombre d'année d'expérience : {experience}")
+    if date_demarrage: donnees_lines.append(f'Date de démarrage : {date_demarrage}')
+    if client:         donnees_lines.append(f'Nom du client : {client}')
 
-    prompt_fiche = "\n".join(donnees).strip()
+    prompt_fiche = "\n".join(donnees_lines).strip()
 
     # meta pour index + affichage
     meta = {
@@ -428,12 +447,11 @@ def generate_from_rpo_pipeline():
             if prompt_fiche is None:
                 continue
             try:
-                # Fiche au FORMAT STRICT demandé (et nettoyage anti-"Consignes")
+                # Fiche au FORMAT STRICT demandé (nettoyage + € auto)
                 content = openai_generate_fiche_from_data(prompt_fiche, titre_force=meta["titre_poste"])
 
                 # Affichage immédiat
                 st.subheader(f'Fiche de Poste pour {meta["titre_poste"]}:')
-                # Affiche TJM/salaire si présent (caption discrète)
                 if meta.get("salaire"):
                     st.caption(f"💶 Rémunération (TJM/Sal.) : {meta['salaire']}")
                 st.write(content)
@@ -498,7 +516,7 @@ with tab_prompt:
     if st.button('Générer la Fiche de Poste'):
         if user_prompt:
             try:
-                # Génération au format strict + nettoyage
+                # Génération au format strict + nettoyage + € auto
                 content = openai_generate_fiche_from_data(user_prompt, titre_force="Fiche (prompt libre)")
                 st.subheader('Fiche de Poste Générée:')
                 st.write(content)
