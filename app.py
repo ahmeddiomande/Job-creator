@@ -494,7 +494,7 @@ def generate_from_rpo_pipeline(return_results: bool = False):
 st.title('🎯 IDEALMATCH JOB CREATOR')
 
 tab_accueil, tab_prompt, tab_rpo, tab_fiches, tab_requetes = st.tabs(
-    ["🏠 Accueil", "✍️ Génération par prompt", "📄 Générer avec RPO", "📚 Fiches générées", "🔍 Requêtes & Emails"]
+    ["🏠 Accueil", "✍️ Ecrivez!", "📄 Générer avec RPO", "📚 Fiches générées", "🔍 Requêtes & Emails"]
 )
 
 # -------- Onglet Accueil --------
