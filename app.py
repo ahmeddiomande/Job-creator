@@ -172,10 +172,9 @@ Identifie des soft skills et met les ici en fonction de cette section "Projet su
 En resumé :
 - "Localisation"
 
-En fonction du « statut » :
-- Si freelance => "TJM ( sans la marge ASI )" 
-- SI CDI => « salaire »
-- Si les 2 , tu met les deux a la suite 
+TJM:  "TJM ( sans la marge ASI )" 
+Salire:  « salaire »
+
 
 
 « Durée de la mission »
@@ -187,7 +186,23 @@ En fonction du « statut » :
 """
 
 INSTRUCTIONS = """Tu es un assistant RH.
-Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) sans ajouter d’explications ni de section "Consignes".
+Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) en ameliorant et en creaznt de"s phrase simple et lisible 
+
+
+
+dans description fais une Reprise du titre "Titre du poste recherché" avec une phrase d’accroche. & Au sein d’une équipe de "Taille de l’equipe" , bien ecris.
+dans responsabilité : reccris proprement tout le contenu sans rien oublier 
+dans competence requise : Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" 
+
+dans en reusmé : En fonction du « statut » :
+- Si freelance => "TJM ( sans la marge ASI )" 
+- SI CDI => « salaire »
+- Si les 2 , tu met les deux a la suite   et mentionne € apres la valeur du salire ou tjm
+
+globelmeent ecris une belle fiche de poste bien lissble 
+
+
+
 Remplis chaque puce avec une phrase claire. Réécris proprement les parties entre guillemets en t’appuyant sur les DONNÉES.
 
 DONNÉES :
