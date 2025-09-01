@@ -170,6 +170,8 @@ Tu dois produire UNIQUEMENT le contenu au format exact donné (TEMPLATE) en amel
 dans description fais une Reprise du titre "Titre du poste recherché" avec une phrase d’accroche. & Au sein d’une équipe de "Taille de l’equipe" , bien ecris.
 dans responsabilité : reccris proprement tout le contenu sans rien oublier en te basant sur la colonne : "Projet sur lequel va travailler le ou la candidate :"  n
 dans competence requise : Identifie des soft skills et met les ici en fonction de cette section "Projet sur lequel va travailler le ou la candidate :" & "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )" & "Compétences obligatoires ( Préciser technologies principales et frameworks pour les postes techniques )"  
+les information sont ecris en vrac dans le tableau reecris totu de manière tres lisible stp
+
 
 dans en reusmé : En fonction du « statut » : fais des phrase d'accroche pour chaque thematique et reviens a la ligne a chaque fois 
 
