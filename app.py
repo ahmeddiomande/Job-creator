@@ -161,13 +161,6 @@ Qualifications requises :
 - {QUAL2}
 - {QUAL3}
 
-Consignes :
-- Respecte exactement les titres des sections ci-dessus (même orthographe et ponctuation).
-- Utilise un ton professionnel, clair et concis.
-- Si certaines informations ne sont pas fournies, complète de façon réaliste et cohérente avec le métier.
-- N'ajoute aucune autre section ni note.
-Données disponibles :
-{DONNEES}
 """
 
 def openai_generate_fiche_from_data(donnees: str, titre_force: str = None):
